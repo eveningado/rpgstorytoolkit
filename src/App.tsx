@@ -112,6 +112,7 @@ import { useAppModal } from "./AppModal";
 import { LanguageSelect, useLang } from "./i18n";
 import { PersonaPrompt } from "./PersonaPrompt";
 import { getPersona, experienceFor, type PersonaId } from "./persona";
+import { track } from "./analytics";
 
 /** =========================
  *  Colors / starter data
@@ -692,7 +693,8 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
   const { t } = useLang();
 
   // Prompt a guest to make an account, with a button that opens the sign-up screen.
-  const promptCreateAccount = (message: string) => {
+  const promptCreateAccount = (message: string, reason: string) => {
+    track("account_prompt_shown", { reason });
     void appModal
       .confirm({
         title: t("dlg.createAccountTitle"),
@@ -701,7 +703,10 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
         cancelText: "Not now",
       })
       .then((ok) => {
-        if (ok) onRequestSignup?.();
+        if (ok) {
+          track("account_prompt_accepted", { reason });
+          onRequestSignup?.();
+        }
       });
   };
 
@@ -709,7 +714,7 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
   // Returns true if allowed; otherwise prompts to create one and returns false.
   const requireAccount = (action: string): boolean => {
     if (!isGuest) return true;
-    promptCreateAccount(`You'll need to create a free account to ${action}.`);
+    promptCreateAccount(`You'll need to create a free account to ${action}.`, action);
     return false;
   };
 
@@ -725,6 +730,7 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
     }
     current += Object.keys((project.view as any)?.timelineCovers ?? {}).length;
     if (current + incoming <= FREE_PROJECT_ASSET_LIMIT) return true;
+    track("upgrade_prompt_shown", { reason: "asset_limit" });
     const ok = await appModal.confirm({
       title: t("dlg.proFeature"),
       message: `The free plan includes up to ${FREE_PROJECT_ASSET_LIMIT} uploaded images per project. Upgrade to Pro for unlimited uploads on the web, or use the desktop app, which is always free and unlimited.`,
@@ -3247,10 +3253,11 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
   const createNewWebProject = async () => {
     setProjectSwitcherOpen(false);
     if (isGuest) {
-      promptCreateAccount("create more than one project");
+      promptCreateAccount("You'll need to create a free account to create more than one project.", "multi_project");
       return;
     }
     if (!profile?.is_pro) {
+      track("upgrade_prompt_shown", { reason: "multi_project" });
       const ok = await appModal.confirm({
         title: t("dlg.proFeature"),
         message: t("dlg.multiProjectPro"),
@@ -5452,6 +5459,7 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
     if (!profile || isUpgrading) return;
 
     setIsUpgrading(true);
+    track("begin_checkout", { currency: "USD", value: 5, items: [{ item_id: "pro_monthly", item_name: "RPG Story Toolkit Pro" }] });
     try {
       const { data, error } = await supabase.functions.invoke("create-checkout");
       if (error || !data?.url) throw error ?? new Error("No checkout URL returned.");
@@ -5637,14 +5645,16 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
 
     if (!profile.is_pro && project.documents.length >= FREE_DOC_LIMIT) {
       if (isGuest) {
-        promptCreateAccount("You'll need to create a free account to add more documents.");
+        promptCreateAccount("You'll need to create a free account to add more documents.", "doc_limit");
       } else {
+        track("upgrade_prompt_shown", { reason: "doc_limit" });
         appModal.alert(`The free plan includes up to ${FREE_DOC_LIMIT} documents. Upgrade to Pro to add more.`, { title: "Pro required" });
       }
       return;
     }
 
     const index = project.documents.length + 1;
+    if (!isDesktop) track("create_document", { doc_number: index });
     const newDoc: Doc = {
       id: `doc_${Date.now()}`,
       title: `Untitled ${index}`,

@@ -310,6 +310,7 @@ const AuthScreen: React.FC<{
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
+        track("login", { method: "email" });
       }
     } catch (err: any) {
       setError(err?.message ?? t("auth.somethingWrong"));
