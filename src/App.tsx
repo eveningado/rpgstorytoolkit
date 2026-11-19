@@ -3594,6 +3594,8 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
         for (const a of row.assets ?? []) {
           if (!a?.path) continue;
           const safeName = sanitizeSegment(a.name) || "file";
+          // Keep where it lives in the vault (subfolders and all), so a download puts it back there.
+          if (!a.path.includes("/" + col.id + "/")) a.vaultPath = a.path;
           a.path = rekey(a.path, `${accountId}/${proj.id}/${col.id}/${row.id}/${a.id}_${safeName}`, a.name, a.mime || "application/octet-stream");
         }
       }
@@ -3706,7 +3708,16 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
   // Convert a WEB-form project into vault form: re-key every asset path, downloading
   // only files not already on this device. Never overwrites a different local file
   // that happens to share a name. Returns a new project; `webProj` is untouched.
-  const localizeWebProject = async (webProj: Project, known: Map<string, string>): Promise<Project> => {
+  // `download: false` only plans: every file's vault path is worked out and recorded in `plan`
+  // (vault path -> web path, with its name / mime), nothing is written — so a merge can decide first
+  // and fetch only what the merged project actually uses (downloadPlanned()). Otherwise a file the merge
+  // then drops was already on disk, and the vault's auto-attach brought it straight back.
+  const localizeWebProject = async (
+    webProj: Project,
+    known: Map<string, string>,
+    opts: { download?: boolean; plan?: Map<string, { webPath: string; name: string; mime: string }> } = {}
+  ): Promise<Project> => {
+    const download = opts.download ?? true;
     const proj = structuredClone(webProj);
     const done = new Map<string, string>();
     const place = async (webPath: string | undefined, target: string, name: string, mime: string): Promise<string | undefined> => {
@@ -3719,13 +3730,15 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
         return knownPath;
       }
       let dest = knownPath ?? target;
-      const bytes = await webPlatform.readAssetBytes(webPath).catch(() => null);
-      if (bytes) {
-        if (await vaultAssetExists(dest)) {
-          const cut = dest.lastIndexOf("/") + 1;
-          dest = `${dest.slice(0, cut)}${Date.now().toString(36)}_${dest.slice(cut)}`;
-        }
-        await platform.uploadAsset(new File([bytes as unknown as BlobPart], name, { type: mime }), dest);
+      if (!knownPath && (await vaultAssetExists(dest))) {
+        const cut = dest.lastIndexOf("/") + 1;
+        dest = `${dest.slice(0, cut)}${Date.now().toString(36)}_${dest.slice(cut)}`;
+      }
+      if (download) {
+        const bytes = await webPlatform.readAssetBytes(webPath).catch(() => null);
+        if (bytes) await platform.uploadAsset(new File([bytes as unknown as BlobPart], name, { type: mime }), dest);
+      } else {
+        opts.plan?.set(dest, { webPath, name, mime });
       }
       done.set(webPath, dest);
       return dest;
@@ -3738,7 +3751,11 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
         for (const a of row.assets ?? []) {
           if (!a?.path) continue;
           const safeName = sanitizeSegment(a.name) || "file";
-          a.path = (await place(a.path, `${colSlug}/${entityKey}/${safeName}`, a.name, a.mime || "application/octet-stream")) ?? a.path;
+          // Back where it lived in the vault (its subfolder) if the web knows; else the row's folder.
+          const home = `${colSlug}/${entityKey}/`;
+          const target = a.vaultPath && a.vaultPath.startsWith(home) && !a.vaultPath.includes("..") ? a.vaultPath : `${home}${safeName}`;
+          a.path = (await place(a.path, target, a.name, a.mime || "application/octet-stream")) ?? a.path;
+          delete a.vaultPath;
         }
       }
     }
@@ -3777,14 +3794,32 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
 
   // Load the linked web project in both forms: as stored on the web, and localized
   // into the vault (only new assets downloaded).
-  const fetchWebProject = async (webProjectId: string, accountId: string) => {
+  const fetchWebProject = async (
+    webProjectId: string,
+    accountId: string,
+    opts: { download?: boolean; plan?: Map<string, { webPath: string; name: string; mime: string }> } = {}
+  ) => {
     const result = await webPlatform.loadProject(accountId, webProjectId);
     if (!result) throw new Error("The linked web project no longer exists.");
     const webProject = normalizeLoadedProject(result.project, { keepAssetPaths: true });
     webProject.name = result.project.name ?? webProject.name;
     const base = await getVaultSyncBase();
-    const localized = await localizeWebProject(webProject, knownLocalAssetPaths(projectRef.current, base, accountId));
+    const localized = await localizeWebProject(webProject, knownLocalAssetPaths(projectRef.current, base, accountId), opts);
     return { webProject, localized: normalizeLoadedProject(localized), base };
+  };
+
+  // After a merge: fetch the planned web files the merged project actually uses and doesn't have yet.
+  const downloadPlanned = async (merged: Project, plan: Map<string, { webPath: string; name: string; mime: string }>) => {
+    const used = new Set<string>();
+    for (const col of merged.collections ?? []) for (const row of col.rows ?? []) for (const a of row.assets ?? []) if (a?.path) used.add(a.path);
+    for (const p of Object.values(merged.view?.timelineCovers ?? {})) if (p) used.add(p);
+    for (const m of merged.worldMaps ?? []) if (m.imagePath) used.add(m.imagePath);
+    if (merged.view?.worldMapImagePath) used.add(merged.view.worldMapImagePath);
+    for (const [dest, f] of plan) {
+      if (!used.has(dest) || (await vaultAssetExists(dest))) continue;
+      const bytes = await webPlatform.readAssetBytes(f.webPath).catch(() => null);
+      if (bytes) await platform.uploadAsset(new File([bytes as unknown as BlobPart], f.name, { type: f.mime }), dest);
+    }
   };
 
   // Pull the linked web project down, overwriting the local vault. Any local work that
@@ -3815,7 +3850,9 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
     const webUpdatedAt = (tsRow?.updated_at as string | undefined) ?? null;
 
     await writeVaultBackup(local, "before-merge");
-    const { webProject, localized, base } = await fetchWebProject(webProjectId, accountId);
+    // Plan the web's files without fetching any: only what the merge keeps is downloaded (below).
+    const plan = new Map<string, { webPath: string; name: string; mime: string }>();
+    const { webProject, localized, base } = await fetchWebProject(webProjectId, accountId, { download: false, plan });
     const { merged: raw, conflicts } = mergeProjects({
       baseLocal: base?.local ?? null,
       baseWeb: base?.web ?? null,
@@ -3824,6 +3861,7 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
       webLocal: localized,
     });
     const merged = normalizeLoadedProject(raw);
+    await downloadPlanned(merged, plan);
 
     const vault = getVaultPath();
     if (vault) await platform.saveProject(vault, merged);

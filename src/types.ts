@@ -16,6 +16,9 @@ export interface AssetFile {
   size: number;
   path: string; // Supabase storage path (bucket = "assets")
   createdAt: string; // ISO string
+  // Web form only: the file's place in the desktop vault (e.g. "characters/MAIN/run_fire/run_fire1.png"),
+  // so a download goes back into the same subfolder. Set by rekeyForWeb, dropped again on the way down.
+  vaultPath?: string;
 }
 
 // Context passed when uploading a world-map image so the upload can be filed as a
