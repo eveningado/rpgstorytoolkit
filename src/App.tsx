@@ -737,6 +737,7 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
       confirmText: t("profile.upgradePro"),
       cancelText: "Not now",
     });
+    track("upgrade_prompt_result", { reason: "asset_limit", accepted: ok });
     if (ok) goPro();
     return false;
   };
@@ -1107,11 +1108,16 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
     if (getPersona()) return;
     if (typeof window !== "undefined" && window.localStorage.getItem("evenstory_persona_asked")) return;
     setPersonaPromptOpen(true);
+    if (!isDesktop) track("persona_prompt_shown");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id]);
   const handlePersonaDone = (id: PersonaId | null) => {
     if (typeof window !== "undefined") window.localStorage.setItem("evenstory_persona_asked", "1");
     setPersonaPromptOpen(false);
+    if (!isDesktop) {
+      if (id) track("persona_selected", { persona: id, from: "first_run" });
+      else track("persona_skipped");
+    }
     if (id) {
       const dev = experienceFor(id) === "developer";
       setShowAssetsTree(dev);
@@ -3264,6 +3270,7 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
         confirmText: t("profile.upgradePro"),
         cancelText: "Not now",
       });
+      track("upgrade_prompt_result", { reason: "multi_project", accepted: ok });
       if (ok) goPro();
       return;
     }
@@ -3309,6 +3316,51 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
       const t = setTimeout(() => openProfileModal(), 300);
       return () => clearTimeout(t);
     }
+  }, []);
+
+  // Web: Stripe sends the customer back to "/?pro=1&cs=<checkout session id>" on a
+  // completed checkout, and "/?checkout=cancelled" when they back out. Record the
+  // conversion in GA once per session id, then clean the query string so a refresh
+  // or a shared URL can't double-count it.
+  useEffect(() => {
+    if (isDesktop) return;
+    const params = new URLSearchParams(window.location.search || "");
+    const sessionId = params.get("cs");
+    const cancelled = params.get("checkout") === "cancelled";
+    if (!sessionId && !cancelled) return;
+
+    if (sessionId) {
+      const key = `rpgst_purchase_${sessionId}`;
+      let already = false;
+      try {
+        already = window.localStorage.getItem(key) === "1";
+      } catch {
+        /* private mode: fall through and report once per page load */
+      }
+      if (!already) {
+        // Price is the single $5/month Pro plan; promo codes can reduce what was
+        // actually charged, so treat this value as list price, not revenue.
+        track("purchase", {
+          transaction_id: sessionId,
+          currency: "USD",
+          value: 5,
+          items: [{ item_id: "pro_monthly", item_name: "RPG Story Toolkit Pro" }],
+        });
+        try {
+          window.localStorage.setItem(key, "1");
+        } catch {
+          /* ignore */
+        }
+      }
+    } else if (cancelled) {
+      track("checkout_cancelled");
+    }
+
+    params.delete("cs");
+    params.delete("pro");
+    params.delete("checkout");
+    const qs = params.toString();
+    window.history.replaceState({}, "", window.location.pathname + (qs ? `?${qs}` : "") + window.location.hash);
   }, []);
 
   const requireOnline = (): boolean => {
@@ -5647,8 +5699,19 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
       if (isGuest) {
         promptCreateAccount("You'll need to create a free account to add more documents.", "doc_limit");
       } else {
+        // Don't dead-end on an alert: offer the upgrade right here.
         track("upgrade_prompt_shown", { reason: "doc_limit" });
-        appModal.alert(`The free plan includes up to ${FREE_DOC_LIMIT} documents. Upgrade to Pro to add more.`, { title: "Pro required" });
+        void appModal
+          .confirm({
+            title: t("dlg.proFeature"),
+            message: t("dlg.docLimitPro").replace("{n}", String(FREE_DOC_LIMIT)),
+            confirmText: t("profile.upgradePro"),
+            cancelText: "Not now",
+          })
+          .then((ok) => {
+            track("upgrade_prompt_result", { reason: "doc_limit", accepted: ok });
+            if (ok) goPro();
+          });
       }
       return;
     }

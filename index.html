@@ -9,15 +9,33 @@
   <link rel="icon" type="image/png" href="/rpgst_logo.png" />
   <link rel="apple-touch-icon" href="/rpgst_logo.png" />
 
-  <!-- Google Analytics (GA4). Same property as the rpgstorytoolkit.com landing page so
-       landing -> app -> sign-up is one funnel. Web only: skipped in the Tauri desktop
-       app, on localhost and on Vercel preview URLs. Loads async, so it never blocks paint. -->
+  <!-- Google Analytics (GA4) with Consent Mode v2. Same property as the
+       rpgstorytoolkit.com landing page so landing -> app -> sign-up is one funnel.
+       Web only: skipped in the Tauri desktop app, on localhost and on Vercel preview
+       URLs. Loads async, so it never blocks paint.
+
+       Consent defaults to denied, so until the visitor accepts, GA sends cookieless
+       pings only (no analytics cookie is written). The banner at the bottom of
+       <body> is what flips it to granted; the choice is remembered in localStorage. -->
   <script>
     (function () {
       if ('__TAURI_INTERNALS__' in window) return;
       if (location.hostname !== 'app.rpgstorytoolkit.com') return;
       window.dataLayer = window.dataLayer || [];
       window.gtag = function () { dataLayer.push(arguments); };
+
+      var stored = null;
+      try { stored = localStorage.getItem('rpgst_consent'); } catch (e) { }
+      var granted = stored === 'granted';
+
+      gtag('consent', 'default', {
+        ad_storage: 'denied',
+        ad_user_data: 'denied',
+        ad_personalization: 'denied',
+        analytics_storage: granted ? 'granted' : 'denied',
+        wait_for_update: 500
+      });
+
       gtag('js', new Date());
       gtag('config', 'G-JYWP21C8SB');
       var s = document.createElement('script');
@@ -88,6 +106,37 @@
     @media (prefers-reduced-motion: reduce) {
       .app-splash-logo, .app-splash, .app-splash-bar::after { animation: none; }
     }
+
+    /* Cookie / analytics consent bar. Hidden until the script decides to show it. */
+    .consent-bar {
+      display: none;
+      position: fixed; left: 16px; right: 16px; bottom: 16px; z-index: 3000;
+      max-width: 520px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      background: #1a1a1c;
+      color: #ededed;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 13px; line-height: 1.5;
+    }
+    html[data-theme="light"] .consent-bar {
+      border-color: rgba(0, 0, 0, 0.12); background: #ffffff; color: #1a1a1c;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+    }
+    .consent-bar p { margin: 0 0 10px; }
+    .consent-bar a { color: inherit; text-decoration: underline; }
+    .consent-bar-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .consent-bar button {
+      font: inherit; font-weight: 600; cursor: pointer;
+      border-radius: 8px; padding: 7px 14px; border: 1px solid transparent;
+    }
+    .consent-bar .consent-no {
+      background: transparent; color: inherit; border-color: currentColor; opacity: 0.75;
+    }
+    .consent-bar .consent-yes { background: #4f8cff; color: #fff; }
+    @media (max-width: 520px) { .consent-bar { left: 10px; right: 10px; bottom: 10px; } }
   </style>
 </head>
 <body>
@@ -99,6 +148,41 @@
       <div class="app-splash-bar"></div>
     </div>
   </div>
+  <!-- Analytics consent bar. Only shown where GA actually runs (see the head script)
+       and only until the visitor chooses; the choice persists in localStorage. -->
+  <div class="consent-bar" id="consent-bar" role="dialog" aria-live="polite" aria-label="Cookies">
+    <p>We use Google Analytics to see how the app is used, so we know what to improve.
+      Nothing is sold or shared. See our <a href="https://rpgstorytoolkit.com/privacy" target="_blank" rel="noopener">privacy policy</a>.</p>
+    <div class="consent-bar-actions">
+      <button type="button" class="consent-no" id="consent-no">No thanks</button>
+      <button type="button" class="consent-yes" id="consent-yes">Allow</button>
+    </div>
+  </div>
+  <script>
+    (function () {
+      if ('__TAURI_INTERNALS__' in window) return;
+      if (location.hostname !== 'app.rpgstorytoolkit.com') return;
+      var bar = document.getElementById('consent-bar');
+      if (!bar) return;
+      var stored = null;
+      try { stored = localStorage.getItem('rpgst_consent'); } catch (e) { }
+      if (stored === 'granted' || stored === 'denied') return;
+
+      function choose(value) {
+        try { localStorage.setItem('rpgst_consent', value); } catch (e) { }
+        if (typeof window.gtag === 'function') {
+          window.gtag('consent', 'update', { analytics_storage: value });
+          window.gtag('event', 'consent_choice', { choice: value });
+        }
+        bar.style.display = 'none';
+      }
+      document.getElementById('consent-yes').addEventListener('click', function () { choose('granted'); });
+      document.getElementById('consent-no').addEventListener('click', function () { choose('denied'); });
+
+      // Short delay so the bar never flashes over the splash screen.
+      setTimeout(function () { bar.style.display = 'block'; }, 900);
+    })();
+  </script>
   <script type="module" src="/src/main.tsx"></script>
 </body>
 

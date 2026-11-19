@@ -506,7 +506,15 @@ const AuthScreen: React.FC<{
               {mode === "signup" && (
                 <div style={{ marginTop: 2 }}>
                   <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 8 }}>{t("persona.signupTitle")}</div>
-                  <PersonaPicker value={signupPersona} onChange={(id) => { setSignupPersona(id); setPersona(id); }} columns={2} />
+                  <PersonaPicker
+                    value={signupPersona}
+                    onChange={(id) => {
+                      setSignupPersona(id);
+                      setPersona(id);
+                      track("persona_selected", { persona: id, from: "signup" });
+                    }}
+                    columns={2}
+                  />
                 </div>
               )}
 
