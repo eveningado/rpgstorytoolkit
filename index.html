@@ -9,6 +9,24 @@
   <link rel="icon" type="image/png" href="/rpgst_logo.png" />
   <link rel="apple-touch-icon" href="/rpgst_logo.png" />
 
+  <!-- Google Analytics (GA4). Same property as the rpgstorytoolkit.com landing page so
+       landing -> app -> sign-up is one funnel. Web only: skipped in the Tauri desktop
+       app, on localhost and on Vercel preview URLs. Loads async, so it never blocks paint. -->
+  <script>
+    (function () {
+      if ('__TAURI_INTERNALS__' in window) return;
+      if (location.hostname !== 'app.rpgstorytoolkit.com') return;
+      window.dataLayer = window.dataLayer || [];
+      window.gtag = function () { dataLayer.push(arguments); };
+      gtag('js', new Date());
+      gtag('config', 'G-JYWP21C8SB');
+      var s = document.createElement('script');
+      s.async = true;
+      s.src = 'https://www.googletagmanager.com/gtag/js?id=G-JYWP21C8SB';
+      document.head.appendChild(s);
+    })();
+  </script>
+
   <!-- Apply saved theme before first paint to prevent flash -->
   <script>
     (function () {

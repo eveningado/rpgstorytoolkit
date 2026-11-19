@@ -416,9 +416,14 @@ export async function vaultAssetExists(storagePath: string, vault?: string): Pro
 // ── Vault asset reconcile ──────────────────────────────────────────────────
 // Files are often added straight into a record's folder in the vault (assets/<table>/<record ID>/,
 // any depth) instead of through Upload. These keep the project's asset lists matching the disk:
-// listVaultAssetFiles() reads what's there, reconcileVaultAssets() attaches anything new to its record
-// and repoints an entry whose file has moved (same name, elsewhere in the same record's folder) —
-// keeping the entry's id, so a record's icon still points at it.
+// listVaultAssetFiles() reads what's there, reconcileVaultAssets() makes each record's asset list match
+// its folder, as if the change had been made in the app:
+//   - moved (same name, elsewhere in the record's folder) → the entry follows it;
+//   - renamed (gone, and one new file in the folder with the same size and extension) → the entry
+//     follows it and takes the new name;
+//   - deleted → the entry goes (and the record's icon, if it was that one);
+//   - new → attached.
+// Moved and renamed entries keep their id, so a record's icon still points at them.
 
 // Engine sidecar files that sit next to assets but aren't assets (Godot .import / .uid, Unity .meta).
 const SIDECAR_FILE = /\.(import|uid|meta|tmp)$|^thumbs\.db$|^desktop\.ini$/i;
@@ -434,7 +439,8 @@ export async function listVaultAssetFiles(vault?: string): Promise<Array<[string
 
 // The project with its asset lists matched to `files` (from listVaultAssetFiles), or null if nothing
 // needed changing. Only records' own folders are looked at; a file outside every record's folder is
-// left alone. Entries whose file is missing and can't be found are kept as they are.
+// left alone. Callers must not pass an empty listing for a vault that has files (a failed read would
+// otherwise read as "everything deleted") — App's reconcileAssetsFromDisk() skips an empty one.
 export function reconcileVaultAssets(project: Project, files: Array<[string, number]>): Project | null {
   const sizes = new Map(files);
   const colSlugs = (project.collections ?? []).map((c) => colVaultSegments(c.folderPath, c.name).join('/'));
@@ -467,6 +473,29 @@ export function reconcileVaultAssets(project: Project, files: Array<[string, num
           rowChanged = true;
         }
       }
+      // Renamed: the file's gone and exactly one new file here matches its size and extension.
+      const ext = (p: string) => (p.split('.').pop() ?? '').toLowerCase();
+      for (let i = 0; i < assets.length; i++) {
+        const a = assets[i];
+        if (sizes.has(a.path)) continue;
+        const candidates = here.filter((p) => !claimed.has(p) && sizes.get(p) === a.size && ext(p) === ext(a.path));
+        if (candidates.length === 1) {
+          const found = candidates[0];
+          assets[i] = { ...a, path: found, name: found.split('/').pop() ?? a.name };
+          claimed.add(found);
+          rowChanged = true;
+        }
+      }
+      // Deleted: still missing after all that. Not if the record's folder is empty or gone, though —
+      // that's more likely a folder that's moved or not there right now than every file deleted, and
+      // wiping a record's assets for it would be hard to undo.
+      let profileAssetId = row.profileAssetId;
+      for (let i = assets.length - 1; i >= 0 && here.length > 0; i--) {
+        if (sizes.has(assets[i].path)) continue;
+        if (assets[i].id === profileAssetId) profileAssetId = undefined;
+        assets.splice(i, 1);
+        rowChanged = true;
+      }
       // New: in the folder, not on the record yet.
       for (const p of here) {
         if (claimed.has(p)) continue;
@@ -483,7 +512,7 @@ export function reconcileVaultAssets(project: Project, files: Array<[string, num
       }
       if (!rowChanged) return row;
       colChanged = true;
-      return { ...row, assets };
+      return { ...row, assets, profileAssetId };
     });
     if (!colChanged) return col;
     changed = true;

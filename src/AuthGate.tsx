@@ -6,6 +6,7 @@ import WorldMapWiki from "./WorldMapWiki";
 import { useLang, LanguageSelect } from "./i18n";
 import { PersonaPicker } from "./PersonaPrompt";
 import { getPersona, setPersona, type PersonaId } from "./persona";
+import { track } from "./analytics";
 
 type View = "app" | "auth" | "reset";
 
@@ -266,6 +267,7 @@ const AuthScreen: React.FC<{
           // user id, so all of their existing work carries over automatically.
           const { error } = await supabase.auth.updateUser({ email, password });
           if (error) throw error;
+          track("sign_up", { method: "email", from: "guest" });
 
           if (subscribeToUpdates) {
             supabase.functions
@@ -284,6 +286,7 @@ const AuthScreen: React.FC<{
             options: { emailRedirectTo: window.location.origin },
           });
           if (error) throw error;
+          track("sign_up", { method: "email", from: "new" });
 
           // Fire-and-forget newsletter subscription (opt-in)
           if (subscribeToUpdates) {
@@ -1756,6 +1759,7 @@ export const AuthGate: React.FC = () => {
       const { data, error } = await supabase.auth.signInAnonymously();
       if (error) throw error;
       setSession(data.session ?? null);
+      track("guest_start");
       setView("app");
     } catch {
       // Anonymous sign-ins disabled/unavailable — fall back to the auth screen.
@@ -1790,6 +1794,7 @@ export const AuthGate: React.FC = () => {
           const { data: anon, error } = await supabase.auth.signInAnonymously();
           if (error) throw error;
           s = anon.session ?? null;
+          track("guest_start");
         } catch {
           // Anonymous sign-ins not enabled — user will see the auth screen.
         }
