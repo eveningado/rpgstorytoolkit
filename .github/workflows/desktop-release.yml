@@ -1,0 +1,148 @@
+# Builds the RPG Story Toolkit desktop app and publishes it as a GitHub Release.
+#
+# Lives ONLY in this public repo (the private dev repo's mirror never touches .github/),
+# because GitHub Actions minutes are free on public repos and macOS runners are
+# expensive on private ones.
+#
+# Trigger: the mirror pushes main here; when src-tauri/tauri.conf.json changes (a
+# version bump) this runs. If a release for that version already exists it does
+# nothing, so only a new version number produces a new release. Can also be run by
+# hand from the Actions tab.
+#
+# Output: a release "vX.Y.Z" with Tauri's own files plus stable-named copies, so the
+# landing page can always link to
+#   https://github.com/jayxujo/rpgstorytoolkit/releases/latest/download/RPG-Story-Toolkit-mac-universal.dmg
+#   https://github.com/jayxujo/rpgstorytoolkit/releases/latest/download/RPG-Story-Toolkit-windows-x64-setup.exe
+# The release stays a draft unless the Mac build succeeds.
+#
+# Builds are unsigned (no Apple Developer / Authenticode certificates yet).
+name: Desktop release
+
+on:
+  push:
+    branches: [main]
+    paths: ['src-tauri/tauri.conf.json']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+env:
+  # Public values: the same URL and anon key ship inside the web app's JavaScript.
+  # Row-level security on the database is what protects data, not this key.
+  VITE_SUPABASE_URL: https://pkhqngaovzxvphtrpvdp.supabase.co
+  VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBraHFuZ2Fvdnp4dnBodHJwdmRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU0ODc3MjksImV4cCI6MjA4MTA2MzcyOX0.Fs9Sfh8i-vagqToarGrRI92I_ghXYvZ56OmaNA6FK4c
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.v.outputs.skip }}
+      tag: ${{ steps.v.outputs.tag }}
+      version: ${{ steps.v.outputs.version }}
+      release_id: ${{ steps.v.outputs.release_id }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          TAG="v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          EXISTING=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -1)
+          if [ -n "$EXISTING" ]; then
+            DRAFT=$(gh api "repos/$GITHUB_REPOSITORY/releases/$EXISTING" --jq .draft)
+            if [ "$DRAFT" = "false" ]; then
+              echo "Release $TAG is already published; nothing to do."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Reusing draft release $TAG ($EXISTING)."
+            echo "release_id=$EXISTING" >> "$GITHUB_OUTPUT"
+          else
+            cat > notes.md <<EOF
+          RPG Story Toolkit $VERSION for Mac (Apple Silicon and Intel) and Windows.
+
+          These builds aren't code-signed yet, so your computer will warn you the first time:
+          - **Mac:** open the .dmg and drag the app to Applications. The first time you open it, macOS will block it: go to System Settings > Privacy & Security, scroll down and click Open Anyway.
+          - **Windows:** on the SmartScreen prompt, click More info > Run anyway.
+
+          The desktop app is free and fully local: your projects are plain folders on your computer. Signing in is only needed to sync with the web app (Pro).
+          EOF
+            ID=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
+              -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" \
+              -f name="RPG Story Toolkit $VERSION" -F draft=true \
+              -F body=@notes.md --jq .id)
+            echo "Created draft release $TAG ($ID)."
+            echo "release_id=$ID" >> "$GITHUB_OUTPUT"
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.skip == 'false'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: --target universal-apple-darwin
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - platform: windows-latest
+            args: ''
+            rust_targets: ''
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          releaseId: ${{ needs.prepare.outputs.release_id }}
+          args: ${{ matrix.args }}
+
+  publish:
+    needs: [prepare, build]
+    if: always() && needs.prepare.outputs.skip == 'false'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+    steps:
+      - name: Add stable-named copies and publish
+        run: |
+          mkdir dl && cd dl
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" --pattern '*.dmg' --pattern '*-setup.exe' || true
+          ls -la
+          DMG=$(ls *universal*.dmg 2>/dev/null | head -1)
+          if [ -z "$DMG" ]; then
+            echo "::error::No universal .dmg in the release; leaving it as a draft."
+            exit 1
+          fi
+          cp "$DMG" RPG-Story-Toolkit-mac-universal.dmg
+          gh release upload "$TAG" -R "$GITHUB_REPOSITORY" RPG-Story-Toolkit-mac-universal.dmg --clobber
+          EXE=$(ls *x64-setup.exe 2>/dev/null | head -1)
+          if [ -n "$EXE" ]; then
+            cp "$EXE" RPG-Story-Toolkit-windows-x64-setup.exe
+            gh release upload "$TAG" -R "$GITHUB_REPOSITORY" RPG-Story-Toolkit-windows-x64-setup.exe --clobber
+          else
+            echo "::warning::No Windows installer this time; publishing Mac only."
+          fi
+          gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --draft=false --latest
