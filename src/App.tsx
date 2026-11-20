@@ -968,6 +968,18 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
+  // Guest "save your work" chip (web only). Guests rarely open the profile menu, so
+  // nothing told them their work lives only in this browser. The chip appears once
+  // they've actually worked on something (a save at least a minute after load, so
+  // the seed project's first save doesn't count) and can be dismissed for the session.
+  const appMountedAtRef = useRef(Date.now());
+  const [guestNudge, setGuestNudge] = useState<"hidden" | "shown" | "dismissed">(() => {
+    try { return sessionStorage.getItem("rpgst_save_nudge") === "dismissed" ? "dismissed" : "hidden"; } catch { return "hidden"; }
+  });
+  useEffect(() => {
+    if (guestNudge === "shown") track("account_prompt_shown", { reason: "save_nudge" });
+  }, [guestNudge]);
+
   // Autosave (debounced)
   const AUTO_SAVE_DELAY_MS = 10000;
   // Auto-sync fires a bit after a save settles, so a burst of edits pushes once.
@@ -4816,6 +4828,9 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
 
       setSaveMessage(t("status.saved"));
       setTimeout(() => setSaveMessage(null), 2000);
+      if (!isDesktop && isGuest && Date.now() - appMountedAtRef.current > 60_000) {
+        setGuestNudge((g) => (g === "hidden" ? "shown" : g));
+      }
 
       // Desktop Pro: quietly push to the linked web project shortly after saving.
       if (isDesktop) scheduleAutoSync();
@@ -10334,6 +10349,35 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
 
           </div>
 
+          {!isDesktop && isGuest && guestNudge === "shown" && (
+            <div
+              title={t("guest.saveChipTitle")}
+              style={{ display: "flex", alignItems: "center", gap: 2, border: "1px solid var(--accent)", backgroundColor: "var(--accent-bg-2)", borderRadius: 999, padding: "2px 4px 2px 10px", fontSize: 12, whiteSpace: "nowrap" }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  track("account_prompt_accepted", { reason: "save_nudge" });
+                  onRequestSignup?.();
+                }}
+                style={{ border: "none", background: "transparent", color: "var(--accent-text)", cursor: "pointer", fontSize: 12, fontWeight: 700, padding: 0 }}
+              >
+                {t("guest.saveChip")}
+              </button>
+              <button
+                type="button"
+                aria-label={t("guest.saveChipDismiss")}
+                onClick={() => {
+                  track("save_nudge_dismissed");
+                  setGuestNudge("dismissed");
+                  try { sessionStorage.setItem("rpgst_save_nudge", "dismissed"); } catch { /* storage unavailable */ }
+                }}
+                style={{ border: "none", background: "transparent", color: "var(--text-2)", cursor: "pointer", fontSize: 12, padding: "0 4px", lineHeight: 1 }}
+              >
+                ✕
+              </button>
+            </div>
+          )}
           {saveMessage && <div style={{ fontSize: 12, opacity: 0.8 }}>{saveMessage}</div>}
         </div>
       </div>

@@ -27,6 +27,7 @@ const LANG_KEY = "evenstory_lang";
 // Curated translation dictionary. Keys missing from a language fall back to English.
 type Dict = Record<string, string>;
 const en: Dict = {
+  "guest.saveChip": "Save your work", "guest.saveChipTitle": "Your work is only reachable from this browser. A free account keeps it safe and lets you open it anywhere.", "guest.saveChipDismiss": "Hide",
   "lang.label": "Language",
 
   "common.save": "Save",
@@ -491,6 +492,7 @@ const en: Dict = {
 };
 
 const zh: Dict = {
+  "guest.saveChip": "保存你的作品", "guest.saveChipTitle": "你的作品只能在此浏览器中访问。免费账户可以保护它，并让你在任何地方打开。", "guest.saveChipDismiss": "隐藏",
   "lang.label": "语言",
   "common.save": "保存", "common.cancel": "取消", "common.close": "关闭", "common.delete": "删除",
   "common.create": "创建", "common.done": "完成", "common.continue": "继续", "common.skip": "跳过",
@@ -820,6 +822,7 @@ const zh: Dict = {
 };
 
 const es: Dict = {
+  "guest.saveChip": "Guarda tu trabajo", "guest.saveChipTitle": "Tu trabajo solo es accesible desde este navegador. Una cuenta gratuita lo protege y te permite abrirlo en cualquier lugar.", "guest.saveChipDismiss": "Ocultar",
   "lang.label": "Idioma",
   "common.save": "Guardar", "common.cancel": "Cancelar", "common.close": "Cerrar", "common.delete": "Eliminar",
   "common.create": "Crear", "common.done": "Listo", "common.continue": "Continuar", "common.skip": "Omitir",
@@ -1149,6 +1152,7 @@ const es: Dict = {
 };
 
 const de: Dict = {
+  "guest.saveChip": "Arbeit sichern", "guest.saveChipTitle": "Deine Arbeit ist nur in diesem Browser erreichbar. Ein kostenloses Konto sichert sie und du kannst sie überall öffnen.", "guest.saveChipDismiss": "Ausblenden",
   "lang.label": "Sprache",
   "common.save": "Speichern", "common.cancel": "Abbrechen", "common.close": "Schließen", "common.delete": "Löschen",
   "common.create": "Erstellen", "common.done": "Fertig", "common.continue": "Weiter", "common.skip": "Überspringen",
@@ -1478,6 +1482,7 @@ const de: Dict = {
 };
 
 const pt: Dict = {
+  "guest.saveChip": "Salve seu trabalho", "guest.saveChipTitle": "Seu trabalho só pode ser acessado neste navegador. Uma conta gratuita o mantém seguro e permite abri-lo em qualquer lugar.", "guest.saveChipDismiss": "Ocultar",
   "lang.label": "Idioma",
   "common.save": "Salvar", "common.cancel": "Cancelar", "common.close": "Fechar", "common.delete": "Excluir",
   "common.create": "Criar", "common.done": "Concluído", "common.continue": "Continuar", "common.skip": "Pular",
@@ -1807,6 +1812,7 @@ const pt: Dict = {
 };
 
 const hi: Dict = {
+  "guest.saveChip": "अपना काम सहेजें", "guest.saveChipTitle": "आपका काम केवल इसी ब्राउज़र से खुलता है। मुफ़्त खाता इसे सुरक्षित रखता है और आप इसे कहीं भी खोल सकते हैं।", "guest.saveChipDismiss": "छिपाएँ",
   "lang.label": "भाषा",
   "common.save": "सहेजें", "common.cancel": "रद्द करें", "common.close": "बंद करें", "common.delete": "हटाएँ",
   "common.create": "बनाएँ", "common.done": "पूर्ण", "common.continue": "जारी रखें", "common.skip": "छोड़ें",
@@ -2136,6 +2142,7 @@ const hi: Dict = {
 };
 
 const ar: Dict = {
+  "guest.saveChip": "احفظ عملك", "guest.saveChipTitle": "لا يمكن الوصول إلى عملك إلا من هذا المتصفح. الحساب المجاني يحفظه ويتيح لك فتحه من أي مكان.", "guest.saveChipDismiss": "إخفاء",
   "lang.label": "اللغة",
   "common.save": "حفظ", "common.cancel": "إلغاء", "common.close": "إغلاق", "common.delete": "حذف",
   "common.create": "إنشاء", "common.done": "تم", "common.continue": "متابعة", "common.skip": "تخطٍّ",
@@ -2465,6 +2472,7 @@ const ar: Dict = {
 };
 
 const ja: Dict = {
+  "guest.saveChip": "作品を保存", "guest.saveChipTitle": "作品はこのブラウザからしか開けません。無料アカウントがあれば安全に保管でき、どこからでも開けます。", "guest.saveChipDismiss": "非表示",
   "lang.label": "言語",
   "common.save": "保存", "common.cancel": "キャンセル", "common.close": "閉じる", "common.delete": "削除",
   "common.create": "作成", "common.done": "完了", "common.continue": "続ける", "common.skip": "スキップ",
