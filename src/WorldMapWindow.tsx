@@ -109,6 +109,9 @@ export const WorldMapWindow: React.FC = () => {
         emitWorldMapMutation({ kind: "openRecord", collectionId, entityId });
         import("./platform/worldMapWindow").then((m) => m.focusMainWindow());
       }}
+      onSetPinStyle={(pinKind, pinId, style) => emitWorldMapMutation({ kind: "setPinStyle", pinKind, pinId, style })}
+      scale={state.scale ?? null}
+      onSetScale={(scale) => emitWorldMapMutation({ kind: "setScale", scale })}
       onSave={() => emitWorldMapMutation({ kind: "save" })}
       showWikiOption={false}
     />

@@ -1,7 +1,7 @@
 // Event bridge between the main window (owner of project state) and the
 // popped-out world map window (a view + command sender). Desktop-only.
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { Document, Collection, WorldMapDocPin, WorldMapLabelPin, WorldNameCtx } from '../types';
+import type { Document, Collection, WorldMapDocPin, WorldMapLabelPin, WorldNameCtx, MapScale } from '../types';
 
 export interface WorldMapState {
   imageUrl: string | null;
@@ -13,8 +13,9 @@ export interface WorldMapState {
   labelPins: WorldMapLabelPin[];
   documents: Document[];
   collections: Collection[];
-  savedMaps: { id: string; name: string; hasImage: boolean }[];
+  savedMaps: { id: string; name: string; hasImage: boolean; collectionId?: string; entityId?: string }[];
   activeMapId: string;
+  scale?: MapScale | null;
   saveMessage: string | null;
 }
 
@@ -37,6 +38,8 @@ export type WorldMapMutation =
   | { kind: 'removeLabelPin'; pinId: string }
   | { kind: 'setDocPinBorder'; pinId: string; border: { x: number; y: number }[] | null }
   | { kind: 'setLabelPinBorder'; pinId: string; border: { x: number; y: number }[] | null }
+  | { kind: 'setPinStyle'; pinKind: 'doc' | 'label'; pinId: string; style: { icon?: string | null; color?: string | null } }
+  | { kind: 'setScale'; scale: MapScale | null }
   | { kind: 'openDoc'; docId: string }
   | { kind: 'openRecord'; collectionId: string; entityId: string }
   | { kind: 'save' };

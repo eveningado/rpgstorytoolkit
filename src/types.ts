@@ -204,6 +204,8 @@ export interface WorldMapDocPin {
   x: number; // 0–100, percentage of map image width
   y: number; // 0–100, percentage of map image height
   border?: MapBorderPoint[]; // optional drawn region linked to this pin
+  icon?: string; // optional marker icon key (see MAP_PIN_ICONS in WorldMap.tsx)
+  color?: string; // optional marker colour (hex); defaults to the accent / table colour
 }
 
 export interface WorldMapLabelPin {
@@ -213,6 +215,15 @@ export interface WorldMapLabelPin {
   x: number;
   y: number;
   border?: MapBorderPoint[];
+  icon?: string;
+  color?: string;
+}
+
+// Optional map scale for the measure tool: the map image's full width equals
+// `distance` `unit`s (e.g. 1200 miles). Set by calibrating a measured line.
+export interface MapScale {
+  distance: number;
+  unit: string;
 }
 
 // A saved world map = a record + its image + its own pins. The currently-open map's
@@ -227,6 +238,7 @@ export interface WorldMapEntry {
   docPins: WorldMapDocPin[];
   labelPins: WorldMapLabelPin[];
   includeInWiki?: boolean;
+  scale?: MapScale;
 }
 
 export interface WikiSettings {
@@ -300,6 +312,7 @@ export interface ProjectViewSettings {
   worldMapNameEntityId?: Id;
   worldMapIncludeInWiki?: boolean;
   activeWorldMapId?: Id; // which saved map (project.worldMaps) is currently open
+  worldMapScale?: MapScale; // the open map's scale (archived into worldMaps[].scale)
 }
 
 

@@ -17,6 +17,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-
 import { CSS } from "@dnd-kit/utilities";
 import type {
   Project,
+  MapScale,
   Document as Doc,
   Collection,
   CollectionRow,
@@ -153,6 +154,7 @@ const archiveActiveWorldMap = (p: Project): { worldMaps: WorldMapEntry[]; active
       docPins: p.worldMapDocPins ?? [],
       labelPins: p.worldMapLabelPins ?? [],
       includeInWiki: v.worldMapIncludeInWiki ?? false,
+      ...(v.worldMapScale ? { scale: v.worldMapScale } : {}),
     };
     const idx = maps.findIndex((m) => m.id === activeId);
     if (idx >= 0) maps[idx] = entry;
@@ -7150,6 +7152,7 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
     delete next.view.worldMapNameEntityId;
     next.view.worldMapIncludeInWiki = false;
     next.view.activeWorldMapId = undefined;
+    delete next.view.worldMapScale;
     next.worldMapDocPins = [];
     next.worldMapLabelPins = [];
     setProject(next);
@@ -7171,6 +7174,8 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
       next.view.worldMapNameEntityId = entry.entityId || undefined;
       next.view.worldMapIncludeInWiki = entry.includeInWiki ?? false;
       next.view.activeWorldMapId = id;
+      if (entry.scale) next.view.worldMapScale = entry.scale;
+      else delete next.view.worldMapScale;
       next.worldMapDocPins = (entry.docPins ?? []).map((p) => ({ ...p }));
       next.worldMapLabelPins = (entry.labelPins ?? []).map((p) => ({ ...p }));
     }
@@ -7194,6 +7199,8 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
       next.view.worldMapNameEntityId = entityId;
       next.view.worldMapIncludeInWiki = existing.includeInWiki ?? false;
       next.view.activeWorldMapId = existing.id;
+      if (existing.scale) next.view.worldMapScale = existing.scale;
+      else delete next.view.worldMapScale;
       next.worldMapDocPins = (existing.docPins ?? []).map((p) => ({ ...p }));
       next.worldMapLabelPins = (existing.labelPins ?? []).map((p) => ({ ...p }));
     } else {
@@ -7203,6 +7210,7 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
       next.view.worldMapNameEntityId = entityId;
       next.view.worldMapIncludeInWiki = false;
       next.view.activeWorldMapId = "wm_" + Date.now();
+      delete next.view.worldMapScale;
       next.worldMapDocPins = [];
       next.worldMapLabelPins = [];
     }
@@ -7284,6 +7292,38 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
           p.id === pinId ? { ...p, border: border && border.length >= 3 ? border : undefined } : p
         ),
       };
+    });
+  };
+
+  // Marker icon / colour for one pin (null clears back to the default look).
+  const setWorldMapPinStyle = (
+    pinKind: "doc" | "label",
+    pinId: Id,
+    style: { icon?: string | null; color?: string | null }
+  ) => {
+    const apply = <T extends { id: Id; icon?: string; color?: string }>(p: T): T => {
+      if (p.id !== pinId) return p;
+      const next = { ...p };
+      if (style.icon !== undefined) { if (style.icon) next.icon = style.icon; else delete next.icon; }
+      if (style.color !== undefined) { if (style.color) next.color = style.color; else delete next.color; }
+      return next;
+    };
+    setProject((prev) => {
+      if (!prev) return prev;
+      return pinKind === "doc"
+        ? { ...prev, worldMapDocPins: (prev.worldMapDocPins ?? []).map(apply) }
+        : { ...prev, worldMapLabelPins: (prev.worldMapLabelPins ?? []).map(apply) };
+    });
+  };
+
+  // Scale of the open map for the measure tool (null removes it).
+  const setWorldMapScale = (scale: MapScale | null) => {
+    setProject((prev) => {
+      if (!prev) return prev;
+      const view = { ...(prev.view ?? {}) };
+      if (scale && scale.distance > 0) view.worldMapScale = { distance: scale.distance, unit: scale.unit };
+      else delete view.worldMapScale;
+      return { ...prev, view };
     });
   };
 
@@ -7543,8 +7583,9 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
         labelPins: (project?.worldMapLabelPins ?? []) as WorldMapLabelPin[],
         documents: project?.documents ?? [],
         collections: project?.collections ?? [],
-        savedMaps: wmList.map((m) => ({ id: m.id, name: m.name, hasImage: !!m.imagePath })),
+        savedMaps: wmList.map((m) => ({ id: m.id, name: m.name, hasImage: !!m.imagePath, collectionId: m.collectionId, entityId: m.entityId })),
         activeMapId: wmActiveId,
+        scale: project?.view?.worldMapScale ?? null,
         saveMessage,
       };
     },
@@ -7572,6 +7613,8 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
       removeLabelPin: (pinId: Id) => removeWorldMapLabelPin(pinId),
       setDocPinBorder: (pinId: Id, border: { x: number; y: number }[] | null) => setWorldMapDocPinBorder(pinId, border),
       setLabelPinBorder: (pinId: Id, border: { x: number; y: number }[] | null) => setWorldMapLabelPinBorder(pinId, border),
+      setPinStyle: (pinKind: "doc" | "label", pinId: Id, style: { icon?: string | null; color?: string | null }) => setWorldMapPinStyle(pinKind, pinId, style),
+      setScale: (scale: MapScale | null) => setWorldMapScale(scale),
       openDoc: (docId: Id) => setActiveDocId(docId),
       openRecord: (collectionId: Id, entityId: Id) => openRecordPage(collectionId, entityId),
       save: () => saveProjectToSupabase(),
@@ -7610,6 +7653,8 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
           case "removeLabelPin": h.removeLabelPin(m.pinId); break;
           case "setDocPinBorder": h.setDocPinBorder(m.pinId, m.border); break;
           case "setLabelPinBorder": h.setLabelPinBorder(m.pinId, m.border); break;
+          case "setPinStyle": h.setPinStyle(m.pinKind, m.pinId, m.style); break;
+          case "setScale": h.setScale(m.scale); break;
           case "openDoc": h.openDoc(m.docId); break;
           case "openRecord": h.openRecord(m.collectionId, m.entityId); break;
           case "save": h.save(); break;
@@ -7636,6 +7681,7 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
     project?.view?.worldMapImagePath,
     project?.view?.worldMapIncludeInWiki,
     project?.view?.activeWorldMapId,
+    project?.view?.worldMapScale,
     project?.worldMaps,
     project?.documents,
     project?.collections,
@@ -8810,7 +8856,10 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
               onOpenRecord={(cid, eid) => openRecordPage(cid, eid)}
               onSave={() => saveProjectToSupabase()}
               showWikiOption={!isDesktop}
-              savedMaps={(archiveActiveWorldMap(project).worldMaps).map((m) => ({ id: m.id, name: m.name, hasImage: !!m.imagePath }))}
+              savedMaps={(archiveActiveWorldMap(project).worldMaps).map((m) => ({ id: m.id, name: m.name, hasImage: !!m.imagePath, collectionId: m.collectionId, entityId: m.entityId }))}
+              onSetPinStyle={setWorldMapPinStyle}
+              scale={project.view?.worldMapScale ?? null}
+              onSetScale={setWorldMapScale}
               activeMapId={project.view?.activeWorldMapId ?? ""}
               onMakeNewMap={makeNewWorldMap}
               onLoadMap={loadWorldMap}
@@ -13848,7 +13897,10 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
             onOpenRecord={(cid, eid) => { openRecordPage(cid, eid); setWorldMapOpen(false); }}
             onSave={() => saveProjectToSupabase()}
             showWikiOption={!isDesktop}
-            savedMaps={(archiveActiveWorldMap(project).worldMaps).map((m) => ({ id: m.id, name: m.name, hasImage: !!m.imagePath }))}
+            savedMaps={(archiveActiveWorldMap(project).worldMaps).map((m) => ({ id: m.id, name: m.name, hasImage: !!m.imagePath, collectionId: m.collectionId, entityId: m.entityId }))}
+              onSetPinStyle={setWorldMapPinStyle}
+              scale={project.view?.worldMapScale ?? null}
+              onSetScale={setWorldMapScale}
             activeMapId={project.view?.activeWorldMapId ?? ""}
             onMakeNewMap={makeNewWorldMap}
             onLoadMap={loadWorldMap}

@@ -105,9 +105,19 @@ export function createSeedProject(
 
     heading('h2', 'World Map'),
     para(
-      txt('Open Tools, then World Map, to create a world, set a map image, and place pins for documents and records. The map is a canvas you can pan and zoom. Right click a pin to '),
+      txt('Open Tools, then World Map, to create a world, set a map image, and place pins for documents and records. The map is a canvas you can pan and zoom. Right click a pin to give it an '),
+      txt('icon and colour', true),
+      txt(', to '),
       txt('draw a region', true),
       txt(' around it (a colored area you can then drag or reshape), or to delete it.'),
+    ),
+    para(
+      txt('Pins', true),
+      txt(' lists every pin on the map with search and layer toggles; click one to fly to it. '),
+      txt('Measure', true),
+      txt(' lets you click out a route and read its length; set a scale once and it reads in miles, leagues or any unit you like. If a place has a map of its own, its pin offers '),
+      txt('Open map', true),
+      txt(', so you can go from a world map down to a city and back.'),
     ),
 
     heading('h2', 'Records as pages'),
@@ -163,7 +173,7 @@ export function createSeedProject(
     'Open Tools, then Timeline, to arrange your documents and record pins across a set of beats. You can rename each section to match your acts, chapters, or quests.',
     '',
     'World Map',
-    'Open Tools, then World Map, to create a world, set a map image, and place pins for documents and records directly on the map.',
+    'Open Tools, then World Map, to create a world, set a map image, and place pins for documents and records directly on the map. Give pins icons and colours, list and search them, measure routes with your own scale, and open a place\'s own map from its pin.',
     '',
     'Publishing a wiki',
     'On the web app you can publish a clean, read only wiki of your project to share with players or your team.',
