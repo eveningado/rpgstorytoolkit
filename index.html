@@ -26,15 +26,20 @@
 
       var stored = null;
       try { stored = localStorage.getItem('rpgst_consent'); } catch (e) { }
-      var granted = stored === 'granted';
 
+      // Consent Mode v2, by region. UK/EEA/Switzerland: analytics stays off until the
+      // visitor clicks Allow (GDPR/UK GDPR/ePrivacy). Everywhere else analytics is on by
+      // default and "No thanks" turns it off. Ad storage is always denied.
       gtag('consent', 'default', {
-        ad_storage: 'denied',
-        ad_user_data: 'denied',
-        ad_personalization: 'denied',
-        analytics_storage: granted ? 'granted' : 'denied',
-        wait_for_update: 500
+        ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied',
+        analytics_storage: 'denied', wait_for_update: 500,
+        region: ['AT','BE','BG','HR','CY','CZ','DK','EE','FI','FR','DE','GR','HU','IE','IT','LV','LT','LU','MT','NL','PL','PT','RO','SK','SI','ES','SE','IS','LI','NO','GB','CH']
       });
+      gtag('consent', 'default', {
+        ad_storage: 'denied', ad_user_data: 'denied', ad_personalization: 'denied',
+        analytics_storage: 'granted'
+      });
+      if (stored === 'granted' || stored === 'denied') gtag('consent', 'update', { analytics_storage: stored });
 
       gtag('js', new Date());
       gtag('config', 'G-JYWP21C8SB');
