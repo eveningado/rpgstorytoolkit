@@ -30,7 +30,10 @@ commercial service (see [License](#license)).
   anything) with the fields you choose. Your documents reference records
   directly.
 - **Timeline & world map** — drop documents and records into ordered timeline
-  sections to check continuity, and pin places on your own map images.
+  sections to check continuity, and pin places on your own map images. Pins
+  get icons and colours, can outline regions, and are listed in a searchable
+  pins panel with layer toggles. Measure routes in your own units once you set
+  a map's scale, and open a city's own map straight from its pin.
 - **Dialogue pipeline** — author dialogue once, tag it by speaker and scene, and
   export it as structured, engine-readable JSON.
 - **Publish a wiki** — turn your world into a clean, browsable public wiki in one
