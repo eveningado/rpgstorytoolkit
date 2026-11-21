@@ -11,11 +11,18 @@
 #
 # Output: a release "vX.Y.Z" with Tauri's own files plus stable-named copies, so the
 # landing page can always link to
-#   https://github.com/jayxujo/rpgstorytoolkit/releases/latest/download/RPG-Story-Toolkit-mac-universal.dmg
-#   https://github.com/jayxujo/rpgstorytoolkit/releases/latest/download/RPG-Story-Toolkit-windows-x64-setup.exe
+#   https://github.com/eveningado/rpgstorytoolkit/releases/latest/download/RPG-Story-Toolkit-mac-universal.dmg
+#   https://github.com/eveningado/rpgstorytoolkit/releases/latest/download/RPG-Story-Toolkit-windows-x64-setup.exe
 # The release stays a draft unless the Mac build succeeds.
 #
-# Builds are unsigned (no Apple Developer / Authenticode certificates yet).
+# In-app updates: when tauri.conf.json has bundle.createUpdaterArtifacts, tauri-action
+# signs the update bundles with TAURI_SIGNING_PRIVATE_KEY(_PASSWORD) (repo secrets) and
+# uploads latest.json to the release; the app checks
+# releases/latest/download/latest.json. Keep that private key safe: losing it means
+# installed copies can't update in-app any more.
+#
+# Builds are not yet code-signed (Apple Developer signing/notarization to be added via
+# APPLE_* secrets; Windows Authenticode not set up).
 name: Desktop release
 
 on:
@@ -114,6 +121,8 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           releaseId: ${{ needs.prepare.outputs.release_id }}
           args: ${{ matrix.args }}
