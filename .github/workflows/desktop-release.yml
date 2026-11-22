@@ -11,8 +11,8 @@
 #
 # Output: a release "vX.Y.Z" with Tauri's own files plus stable-named copies, so the
 # landing page can always link to
-#   https://github.com/eveningado/rpgstorytoolkit/releases/latest/download/RPG-Story-Toolkit-mac-universal.dmg
-#   https://github.com/eveningado/rpgstorytoolkit/releases/latest/download/RPG-Story-Toolkit-windows-x64-setup.exe
+#   https://github.com/jamesxujohnson/rpgstorytoolkit/releases/latest/download/RPG-Story-Toolkit-mac-universal.dmg
+#   https://github.com/jamesxujohnson/rpgstorytoolkit/releases/latest/download/RPG-Story-Toolkit-windows-x64-setup.exe
 # The release stays a draft unless the Mac build succeeds.
 #
 # In-app updates: when tauri.conf.json has bundle.createUpdaterArtifacts, tauri-action
