@@ -2,7 +2,7 @@
 name = "app"
 version = "0.1.1"
 description = "RPG Story Toolkit desktop app"
-authors = ["jayxujo"]
+authors = ["James Xu-Johnson"]
 license = ""
 repository = ""
 edition = "2021"
