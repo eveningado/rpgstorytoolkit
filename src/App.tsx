@@ -18,6 +18,7 @@ import { CSS } from "@dnd-kit/utilities";
 import type {
   Project,
   MapScale,
+  MapTextLabel,
   Document as Doc,
   Collection,
   CollectionRow,
@@ -139,7 +140,8 @@ const archiveActiveWorldMap = (p: Project): { worldMaps: WorldMapEntry[]; active
     v.worldMapImagePath ||
     v.worldMapName ||
     (p.worldMapDocPins?.length ?? 0) > 0 ||
-    (p.worldMapLabelPins?.length ?? 0) > 0
+    (p.worldMapLabelPins?.length ?? 0) > 0 ||
+    (p.worldMapTexts?.length ?? 0) > 0
   );
   const maps = [...(p.worldMaps ?? [])];
   let activeId = v.activeWorldMapId ?? "";
@@ -155,6 +157,7 @@ const archiveActiveWorldMap = (p: Project): { worldMaps: WorldMapEntry[]; active
       labelPins: p.worldMapLabelPins ?? [],
       includeInWiki: v.worldMapIncludeInWiki ?? false,
       ...(v.worldMapScale ? { scale: v.worldMapScale } : {}),
+      ...((p.worldMapTexts?.length ?? 0) > 0 ? { texts: p.worldMapTexts } : {}),
     };
     const idx = maps.findIndex((m) => m.id === activeId);
     if (idx >= 0) maps[idx] = entry;
@@ -2861,6 +2864,7 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
       worldMapDocPins: Array.isArray(raw?.worldMapDocPins) ? raw.worldMapDocPins : [],
       worldMapLabelPins: Array.isArray(raw?.worldMapLabelPins) ? raw.worldMapLabelPins : [],
       worldMaps: Array.isArray(raw?.worldMaps) ? raw.worldMaps : [],
+      ...(Array.isArray(raw?.worldMapTexts) ? { worldMapTexts: raw.worldMapTexts } : {}),
       ...(raw?.desktopSync?.at ? { desktopSync: { at: String(raw.desktopSync.at) } } : {}),
     };
 
@@ -5022,6 +5026,7 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
           name: p.view?.worldMapName ?? "",
           docPins: (p.worldMapDocPins ?? []),
           labelPins: (p.worldMapLabelPins ?? []),
+          ...((p.worldMapTexts?.length ?? 0) > 0 ? { texts: p.worldMapTexts } : {}),
         }
       : null;
 
@@ -7155,6 +7160,7 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
     delete next.view.worldMapScale;
     next.worldMapDocPins = [];
     next.worldMapLabelPins = [];
+    delete next.worldMapTexts;
     setProject(next);
     await saveProjectToSupabase(next);
   };
@@ -7178,6 +7184,8 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
       else delete next.view.worldMapScale;
       next.worldMapDocPins = (entry.docPins ?? []).map((p) => ({ ...p }));
       next.worldMapLabelPins = (entry.labelPins ?? []).map((p) => ({ ...p }));
+      if (entry.texts?.length) next.worldMapTexts = entry.texts.map((l) => ({ ...l }));
+      else delete next.worldMapTexts;
     }
     setProject(next);
     await saveProjectToSupabase(next);
@@ -7203,6 +7211,8 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
       else delete next.view.worldMapScale;
       next.worldMapDocPins = (existing.docPins ?? []).map((p) => ({ ...p }));
       next.worldMapLabelPins = (existing.labelPins ?? []).map((p) => ({ ...p }));
+      if (existing.texts?.length) next.worldMapTexts = existing.texts.map((l) => ({ ...l }));
+      else delete next.worldMapTexts;
     } else {
       delete next.view.worldMapImagePath;
       next.view.worldMapName = name;
@@ -7213,6 +7223,7 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
       delete next.view.worldMapScale;
       next.worldMapDocPins = [];
       next.worldMapLabelPins = [];
+      delete next.worldMapTexts;
     }
     setProject(next);
     await saveProjectToSupabase(next);
@@ -7324,6 +7335,26 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
       if (scale && scale.distance > 0) view.worldMapScale = { distance: scale.distance, unit: scale.unit };
       else delete view.worldMapScale;
       return { ...prev, view };
+    });
+  };
+
+  // Free text labels on the open map (sea names, regions, notes).
+  const addWorldMapText = (label: MapTextLabel) => {
+    setProject((prev) => {
+      if (!prev) return prev;
+      return { ...prev, worldMapTexts: [...(prev.worldMapTexts ?? []), label] };
+    });
+  };
+  const updateWorldMapText = (label: MapTextLabel) => {
+    setProject((prev) => {
+      if (!prev) return prev;
+      return { ...prev, worldMapTexts: (prev.worldMapTexts ?? []).map((l) => (l.id === label.id ? label : l)) };
+    });
+  };
+  const removeWorldMapText = (id: Id) => {
+    setProject((prev) => {
+      if (!prev) return prev;
+      return { ...prev, worldMapTexts: (prev.worldMapTexts ?? []).filter((l) => l.id !== id) };
     });
   };
 
@@ -7586,6 +7617,7 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
         savedMaps: wmList.map((m) => ({ id: m.id, name: m.name, hasImage: !!m.imagePath, collectionId: m.collectionId, entityId: m.entityId })),
         activeMapId: wmActiveId,
         scale: project?.view?.worldMapScale ?? null,
+        texts: (project?.worldMapTexts ?? []) as MapTextLabel[],
         saveMessage,
       };
     },
@@ -7615,6 +7647,9 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
       setLabelPinBorder: (pinId: Id, border: { x: number; y: number }[] | null) => setWorldMapLabelPinBorder(pinId, border),
       setPinStyle: (pinKind: "doc" | "label", pinId: Id, style: { icon?: string | null; color?: string | null }) => setWorldMapPinStyle(pinKind, pinId, style),
       setScale: (scale: MapScale | null) => setWorldMapScale(scale),
+      addText: (label: MapTextLabel) => addWorldMapText(label),
+      updateText: (label: MapTextLabel) => updateWorldMapText(label),
+      removeText: (id: Id) => removeWorldMapText(id),
       openDoc: (docId: Id) => setActiveDocId(docId),
       openRecord: (collectionId: Id, entityId: Id) => openRecordPage(collectionId, entityId),
       save: () => saveProjectToSupabase(),
@@ -7655,6 +7690,9 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
           case "setLabelPinBorder": h.setLabelPinBorder(m.pinId, m.border); break;
           case "setPinStyle": h.setPinStyle(m.pinKind, m.pinId, m.style); break;
           case "setScale": h.setScale(m.scale); break;
+          case "addText": h.addText(m.label); break;
+          case "updateText": h.updateText(m.label); break;
+          case "removeText": h.removeText(m.id); break;
           case "openDoc": h.openDoc(m.docId); break;
           case "openRecord": h.openRecord(m.collectionId, m.entityId); break;
           case "save": h.save(); break;
@@ -7677,6 +7715,7 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
   }, [
     project?.worldMapDocPins,
     project?.worldMapLabelPins,
+    project?.worldMapTexts,
     project?.view?.worldMapName,
     project?.view?.worldMapImagePath,
     project?.view?.worldMapIncludeInWiki,
@@ -8860,6 +8899,10 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
               onSetPinStyle={setWorldMapPinStyle}
               scale={project.view?.worldMapScale ?? null}
               onSetScale={setWorldMapScale}
+              texts={(project.worldMapTexts ?? []) as MapTextLabel[]}
+              onAddText={addWorldMapText}
+              onUpdateText={updateWorldMapText}
+              onRemoveText={removeWorldMapText}
               activeMapId={project.view?.activeWorldMapId ?? ""}
               onMakeNewMap={makeNewWorldMap}
               onLoadMap={loadWorldMap}
@@ -13901,6 +13944,10 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
               onSetPinStyle={setWorldMapPinStyle}
               scale={project.view?.worldMapScale ?? null}
               onSetScale={setWorldMapScale}
+              texts={(project.worldMapTexts ?? []) as MapTextLabel[]}
+              onAddText={addWorldMapText}
+              onUpdateText={updateWorldMapText}
+              onRemoveText={removeWorldMapText}
             activeMapId={project.view?.activeWorldMapId ?? ""}
             onMakeNewMap={makeNewWorldMap}
             onLoadMap={loadWorldMap}

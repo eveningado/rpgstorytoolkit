@@ -112,6 +112,20 @@ export const WorldMapWindow: React.FC = () => {
       onSetPinStyle={(pinKind, pinId, style) => emitWorldMapMutation({ kind: "setPinStyle", pinKind, pinId, style })}
       scale={state.scale ?? null}
       onSetScale={(scale) => emitWorldMapMutation({ kind: "setScale", scale })}
+      texts={state.texts ?? []}
+      onAddText={(label) => {
+        setState((prev) => prev ? { ...prev, texts: [...(prev.texts ?? []), label] } : prev);
+        emitWorldMapMutation({ kind: "addText", label });
+      }}
+      onUpdateText={(label) => {
+        markDragging();
+        setState((prev) => prev ? { ...prev, texts: (prev.texts ?? []).map((l) => l.id === label.id ? label : l) } : prev);
+        emitWorldMapMutation({ kind: "updateText", label });
+      }}
+      onRemoveText={(id) => {
+        setState((prev) => prev ? { ...prev, texts: (prev.texts ?? []).filter((l) => l.id !== id) } : prev);
+        emitWorldMapMutation({ kind: "removeText", id });
+      }}
       onSave={() => emitWorldMapMutation({ kind: "save" })}
       showWikiOption={false}
     />

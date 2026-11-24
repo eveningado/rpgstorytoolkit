@@ -119,6 +119,10 @@ export function createSeedProject(
       txt('Open map', true),
       txt(', so you can go from a world map down to a city and back.'),
     ),
+    para(
+      txt('Text', true),
+      txt(' writes names straight onto the map, like a sea, a mountain range or a road. Pick a size, colour, angle, italics or spaced capitals; the text grows and shrinks with the map, and you can drag it, or double-click it to edit. Keyboard shortcuts: F fits the map, M measures, P opens the pins list and T adds text.'),
+    ),
 
     heading('h2', 'Records as pages'),
     para(
@@ -173,7 +177,7 @@ export function createSeedProject(
     'Open Tools, then Timeline, to arrange your documents and record pins across a set of beats. You can rename each section to match your acts, chapters, or quests.',
     '',
     'World Map',
-    'Open Tools, then World Map, to create a world, set a map image, and place pins for documents and records directly on the map. Give pins icons and colours, list and search them, measure routes with your own scale, and open a place\'s own map from its pin.',
+    'Open Tools, then World Map, to create a world, set a map image, and place pins for documents and records directly on the map. Give pins icons and colours, list and search them, measure routes with your own scale, write sea and region names onto the map, and open a place\'s own map from its pin.',
     '',
     'Publishing a wiki',
     'On the web app you can publish a clean, read only wiki of your project to share with players or your team.',

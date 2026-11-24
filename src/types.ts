@@ -219,6 +219,22 @@ export interface WorldMapLabelPin {
   color?: string;
 }
 
+// Free text written on the map (sea names, region names, notes), independent of pins.
+// Position is a percentage of the image like pins; size is a preset scaled to the image
+// width, so labels grow and shrink with the map like painted-on text.
+export type MapTextSize = "s" | "m" | "l" | "xl";
+export interface MapTextLabel {
+  id: Id;
+  text: string;
+  x: number; // 0-100, percentage of map image width (label centre)
+  y: number; // 0-100, percentage of map image height
+  size?: MapTextSize; // default "m"
+  color?: string; // hex; default white with a dark halo
+  rotation?: number; // degrees, -90..90; default 0
+  italic?: boolean;
+  caps?: boolean; // spaced capitals, the classic region-name look
+}
+
 // Optional map scale for the measure tool: the map image's full width equals
 // `distance` `unit`s (e.g. 1200 miles). Set by calibrating a measured line.
 export interface MapScale {
@@ -239,6 +255,7 @@ export interface WorldMapEntry {
   labelPins: WorldMapLabelPin[];
   includeInWiki?: boolean;
   scale?: MapScale;
+  texts?: MapTextLabel[];
 }
 
 export interface WikiSettings {
@@ -342,6 +359,7 @@ export interface Project {
   timelineLine?: TimelineLine; // line-style (Gantt) data; independent of section data
   worldMapDocPins?: WorldMapDocPin[];
   worldMapLabelPins?: WorldMapLabelPin[];
+  worldMapTexts?: MapTextLabel[]; // free text labels on the open map (archived into worldMaps[].texts)
   worldMaps?: WorldMapEntry[]; // archive of all saved maps (incl. the active one)
 
   // Set on the WEB copy each time a desktop app pushes it, so the web app can show

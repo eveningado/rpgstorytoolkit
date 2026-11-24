@@ -174,7 +174,7 @@ export function mergeProjects(args: {
   });
 
   // ── Simple id-keyed lists (both-edited → keep this device's) ──
-  const byId = <T extends { id: string }>(k: "timelineLabels" | "worldMapDocPins" | "worldMapLabelPins" | "worldMaps") =>
+  const byId = <T extends { id: string }>(k: "timelineLabels" | "worldMapDocPins" | "worldMapLabelPins" | "worldMapTexts" | "worldMaps") =>
     mergeById<T>(hasBase, at(k) as unknown as { b?: T[]; bw?: T[]; l?: T[]; w?: T[]; wl?: T[] }, (x) => x.id);
 
   const tl = { b: b?.timelineLine, bw: bw?.timelineLine, l: l.timelineLine, w: w.timelineLine, wl: wl.timelineLine };
@@ -196,7 +196,7 @@ export function mergeProjects(args: {
 
   const handled = new Set([
     "id", "documents", "collections", "datasets", "documentFolders", "collectionFolders", "view",
-    "timelineLabels", "timelineLine", "worldMapDocPins", "worldMapLabelPins", "worldMaps",
+    "timelineLabels", "timelineLine", "worldMapDocPins", "worldMapLabelPins", "worldMapTexts", "worldMaps",
   ]);
   const merged: Record<string, unknown> = {};
   // Anything else top-level (name, future fields): whole-value three-way.
@@ -219,6 +219,8 @@ export function mergeProjects(args: {
     worldMapDocPins: byId("worldMapDocPins"),
     worldMapLabelPins: byId("worldMapLabelPins"),
     worldMaps: byId("worldMaps"),
+    // Map text labels (optional field): only written when either side has any.
+    ...(l.worldMapTexts || wl.worldMapTexts ? { worldMapTexts: byId("worldMapTexts") } : {}),
     ...(timelineLine ? { timelineLine } : {}),
   });
 

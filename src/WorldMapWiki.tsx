@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
+import type { MapTextLabel } from "./types";
+import { pinGlyph, mapTextFontPx, mapTextHalo, MAP_TEXT_DEFAULT_COLOR, MAP_TEXT_FONT } from "./mapLabels";
 
 interface BorderPoint { x: number; y: number }
 
@@ -9,6 +11,8 @@ interface DocPin {
   x: number;
   y: number;
   border?: BorderPoint[];
+  icon?: string;
+  color?: string;
 }
 
 interface LabelPin {
@@ -18,6 +22,8 @@ interface LabelPin {
   x: number;
   y: number;
   border?: BorderPoint[];
+  icon?: string;
+  color?: string;
 }
 
 interface WorldMapData {
@@ -25,6 +31,7 @@ interface WorldMapData {
   name: string;
   docPins: DocPin[];
   labelPins: LabelPin[];
+  texts?: MapTextLabel[];
 }
 
 interface WorldMapWikiProps {
@@ -39,6 +46,7 @@ const WorldMapWiki: React.FC<WorldMapWikiProps> = ({ worldMap, docs, cols, slug,
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [popupPinId, setPopupPinId] = useState<string | null>(null);
+  const [natural, setNatural] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
 
   useEffect(() => {
     if (!worldMap.imagePath) return;
@@ -97,8 +105,51 @@ const WorldMapWiki: React.FC<WorldMapWikiProps> = ({ worldMap, docs, cols, slug,
           src={imageUrl}
           alt={worldMap.name || "World map"}
           draggable={false}
+          onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
           style={{ display: "block", maxWidth: "100%", borderRadius: 10, userSelect: "none" }}
         />
+
+        {/* Text labels (sea names, regions): drawn in image pixels so they scale with the map */}
+        {(worldMap.texts?.length ?? 0) > 0 && natural.w > 0 && (
+          <svg
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", overflow: "visible" }}
+            viewBox={`0 0 ${natural.w} ${natural.h}`}
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            {(worldMap.texts ?? []).map((l) => {
+              const fs = mapTextFontPx(l.size, natural.w);
+              const color = l.color ?? MAP_TEXT_DEFAULT_COLOR;
+              const x = (l.x / 100) * natural.w;
+              const y = (l.y / 100) * natural.h;
+              const lines = String(l.text ?? "").split("\n");
+              const shown = l.caps ? lines.map((s) => s.toUpperCase()) : lines;
+              return (
+                <text
+                  key={l.id}
+                  x={x}
+                  y={y}
+                  transform={l.rotation ? `rotate(${l.rotation} ${x} ${y})` : undefined}
+                  textAnchor="middle"
+                  fill={color}
+                  stroke={mapTextHalo(color)}
+                  strokeWidth={Math.max(1, fs * 0.12)}
+                  strokeLinejoin="round"
+                  paintOrder="stroke"
+                  fontFamily={MAP_TEXT_FONT}
+                  fontSize={fs}
+                  fontWeight={700}
+                  fontStyle={l.italic ? "italic" : "normal"}
+                  letterSpacing={l.caps ? fs * 0.2 : fs * 0.02}
+                >
+                  {shown.map((line, i) => (
+                    <tspan key={i} x={x} dy={i === 0 ? `${0.35 - (shown.length - 1) * 0.55}em` : "1.1em"}>{line}</tspan>
+                  ))}
+                </text>
+              );
+            })}
+          </svg>
+        )}
 
         {/* Region borders (read-only) */}
         {(() => {
@@ -114,7 +165,7 @@ const WorldMapWiki: React.FC<WorldMapWikiProps> = ({ worldMap, docs, cols, slug,
               preserveAspectRatio="none"
             >
               {regions.map(({ kind, pin }) => {
-                const c = kind === "label" ? (cols.find((co: any) => co.id === (pin as LabelPin).collectionId)?.color ?? "#9aa0a6") : "#9aa0a6";
+                const c = pin.color ?? (kind === "label" ? (cols.find((co: any) => co.id === (pin as LabelPin).collectionId)?.color ?? "#9aa0a6") : "#9aa0a6");
                 const pts = (pin.border ?? []).map((p) => `${p.x},${p.y}`).join(" ");
                 return (
                   <polygon
@@ -137,6 +188,7 @@ const WorldMapWiki: React.FC<WorldMapWikiProps> = ({ worldMap, docs, cols, slug,
         {/* Doc pins */}
         {worldMap.docPins.map((pin) => {
           const doc = docs.find((d) => d.id === pin.docId);
+          const glyph = pinGlyph(pin.icon);
           return (
             <div
               key={pin.id}
@@ -157,20 +209,27 @@ const WorldMapWiki: React.FC<WorldMapWikiProps> = ({ worldMap, docs, cols, slug,
             >
               <div
                 style={{
-                  width: 22,
-                  height: 22,
+                  width: glyph ? 26 : 22,
+                  height: glyph ? 26 : 22,
                   borderRadius: "50% 50% 50% 0",
                   transform: "rotate(-45deg)",
-                  background: "#4f8cff",
+                  background: pin.color ?? "#4f8cff",
                   border: "2px solid white",
                   boxShadow: "0 2px 8px rgba(0,0,0,0.5)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
                 }}
-              />
+              >
+                {glyph && (
+                  <span style={{ transform: "rotate(45deg)", color: "#fff", fontSize: 13, lineHeight: 1, fontWeight: 700, textShadow: "0 1px 2px rgba(0,0,0,0.6)" }}>{glyph}</span>
+                )}
+              </div>
               {doc && (
                 <div
                   style={{
                     position: "absolute",
-                    bottom: 26,
+                    bottom: glyph ? 30 : 26,
                     left: "50%",
                     transform: "translateX(-50%)",
                     background: "#0f0f0f",
@@ -202,6 +261,8 @@ const WorldMapWiki: React.FC<WorldMapWikiProps> = ({ worldMap, docs, cols, slug,
                 row.id
               )
             : pin.entityId;
+          const c = pin.color ?? col?.color;
+          const glyph = pinGlyph(pin.icon);
 
           return (
             <div
@@ -216,13 +277,13 @@ const WorldMapWiki: React.FC<WorldMapWikiProps> = ({ worldMap, docs, cols, slug,
                 display: "flex",
                 alignItems: "center",
                 gap: 4,
-                background: col?.color ? `${col.color}22` : "#1a1a1a",
-                border: `1px solid ${col?.color ?? "#444"}`,
+                background: c ? `${c}22` : "#1a1a1a",
+                border: `1px solid ${c ?? "#444"}`,
                 borderRadius: 20,
                 padding: "3px 8px",
                 fontSize: 11,
                 fontWeight: 700,
-                color: col?.color ?? "#f5f5f5",
+                color: c ?? "#f5f5f5",
                 boxShadow: "0 2px 6px rgba(0,0,0,0.4)",
                 backdropFilter: "blur(4px)",
                 cursor: col ? "pointer" : "default",
@@ -233,6 +294,7 @@ const WorldMapWiki: React.FC<WorldMapWikiProps> = ({ worldMap, docs, cols, slug,
               }}
               title={col ? `Go to ${label} in ${col.name}` : label}
             >
+              {glyph && <span style={{ lineHeight: 1 }}>{glyph}</span>}
               {label}
             </div>
           );

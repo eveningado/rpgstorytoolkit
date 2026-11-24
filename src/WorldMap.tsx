@@ -1,37 +1,17 @@
 import React, { useEffect, useRef, useState } from "react";
-import type { Id, Document, Collection, WorldMapDocPin, WorldMapLabelPin, WorldNameCtx, MapScale } from "./types";
+import type { Id, Document, Collection, WorldMapDocPin, WorldMapLabelPin, WorldNameCtx, MapScale, MapTextLabel } from "./types";
 import { entityLabel } from "./entityLabel";
 import { useLang } from "./i18n";
+import { MAP_PIN_ICONS, pinGlyph, MAP_TEXT_SIZES, MAP_TEXT_COLORS, MAP_TEXT_DEFAULT_COLOR, MAP_TEXT_FONT, mapTextFontPx, mapTextHalo, isLightColor as isLightText } from "./mapLabels";
 
-// Marker icons a pin can show (key stored on the pin). Plain Unicode symbols, not emoji, so they look the same
-// on every OS and take the pin colour.
-const MAP_PIN_ICONS: { key: string; glyph: string }[] = [
-  { key: "dot", glyph: "●" },
-  { key: "settlement", glyph: "⌂" },
-  { key: "castle", glyph: "♜" },
-  { key: "landmark", glyph: "★" },
-  { key: "flag", glyph: "⚑" },
-  { key: "mountain", glyph: "▲" },
-  { key: "camp", glyph: "△" },
-  { key: "port", glyph: "⚓" },
-  { key: "battle", glyph: "⚔" },
-  { key: "temple", glyph: "✚" },
-  { key: "treasure", glyph: "◆" },
-  { key: "danger", glyph: "☠" },
-  { key: "quest", glyph: "!" },
-  { key: "mystery", glyph: "?" },
-  { key: "nature", glyph: "✿" },
-  { key: "wonder", glyph: "☼" },
-];
 const MAP_PIN_COLORS = ["#4f8cff", "#e5484d", "#f5a524", "#30a46c", "#12a594", "#8e4ec6", "#e93d82", "#a18072", "#9aa0a6", "#f1f1f1"];
-const pinGlyph = (icon?: string) => MAP_PIN_ICONS.find((i) => i.key === icon)?.glyph ?? "";
 
 // Map layer visibility + pins panel are per-device view prefs (not project data).
-type MapLayers = { docs: boolean; records: boolean; regions: boolean; names: boolean };
+type MapLayers = { docs: boolean; records: boolean; regions: boolean; names: boolean; texts: boolean };
 const LAYERS_KEY = "rpgst_wmap_layers";
 const PANEL_KEY = "rpgst_wmap_panel";
 const readLayers = (): MapLayers => {
-  const d: MapLayers = { docs: true, records: true, regions: true, names: true };
+  const d: MapLayers = { docs: true, records: true, regions: true, names: true, texts: true };
   try { return { ...d, ...(JSON.parse(localStorage.getItem(LAYERS_KEY) || "{}") as Partial<MapLayers>) }; } catch { return d; }
 };
 
@@ -76,6 +56,11 @@ interface WorldMapProps {
   // Measure tool scale for the open map (full image width = distance units).
   scale?: MapScale | null;
   onSetScale?: (scale: MapScale | null) => void;
+  // Free text labels on the open map (sea names, regions, notes). Optional: no button without onAddText.
+  texts?: MapTextLabel[];
+  onAddText?: (label: MapTextLabel) => void;
+  onUpdateText?: (label: MapTextLabel) => void; // replaces the label with the same id
+  onRemoveText?: (id: Id) => void;
   showWikiOption?: boolean; // hide the "Include in wiki" toggle on desktop
   embedded?: boolean; // when true, fill the parent container instead of a full-screen overlay
 
@@ -90,7 +75,20 @@ interface WorldMapProps {
   saveMessage?: string | null;
 }
 
-type AddMode = "none" | "addDoc" | "addLabel";
+type AddMode = "none" | "addDoc" | "addLabel" | "addText";
+
+// Id used for a text label that is being written but not placed yet.
+const NEW_TEXT_ID = "__new_text__";
+// Drop default values so saved labels stay small (defaults: size m, white, upright, roman).
+const cleanTextLabel = (l: MapTextLabel): MapTextLabel => {
+  const out: MapTextLabel = { id: l.id, text: l.text.replace(/^\s+|\s+$/g, ""), x: l.x, y: l.y };
+  if (l.size && l.size !== "m") out.size = l.size;
+  if (l.color && l.color.toLowerCase() !== MAP_TEXT_DEFAULT_COLOR) out.color = l.color;
+  if (l.rotation && Number.isFinite(l.rotation)) out.rotation = Math.max(-90, Math.min(90, Math.round(l.rotation)));
+  if (l.italic) out.italic = true;
+  if (l.caps) out.caps = true;
+  return out;
+};
 
 const WorldMap: React.FC<WorldMapProps> = ({
   imageUrl,
@@ -121,6 +119,10 @@ const WorldMap: React.FC<WorldMapProps> = ({
   onSetPinStyle,
   scale = null,
   onSetScale,
+  texts = [],
+  onAddText,
+  onUpdateText,
+  onRemoveText,
   showWikiOption = true,
   embedded = false,
   savedMaps,
@@ -293,6 +295,30 @@ const WorldMap: React.FC<WorldMapProps> = ({
   // Maps opened by drilling into a pin ("Open map"), so "Back" returns to the parent.
   const [mapStack, setMapStack] = useState<string[]>([]);
 
+  // Text label being written or edited (draft shown live on the map until Done / Cancel).
+  const [textEditor, setTextEditor] = useState<{ id: string; draft: MapTextLabel } | null>(null);
+  const openTextEditor = (label: MapTextLabel) => {
+    setPopupPinId(null);
+    setTextEditor({ id: label.id, draft: { ...label } });
+  };
+  const patchTextDraft = (patch: Partial<MapTextLabel>) =>
+    setTextEditor((cur) => (cur ? { ...cur, draft: { ...cur.draft, ...patch } } : cur));
+  const commitTextEditor = () => {
+    if (!textEditor) return;
+    const d = cleanTextLabel(textEditor.draft);
+    if (d.text) {
+      if (textEditor.id === NEW_TEXT_ID) onAddText?.({ ...d, id: `wmtxt_${Date.now()}` });
+      else onUpdateText?.(d);
+      onSave();
+    }
+    setTextEditor(null);
+  };
+  const deleteTextLabel = (id: string) => {
+    setTextEditor(null);
+    onRemoveText?.(id as Id);
+    onSave();
+  };
+
   // Length of a measured polyline as a fraction of the map image's width (aspect-correct).
   const lineWidthFraction = (pts: { x: number; y: number }[]) => {
     const w = imgNatural.w || 1;
@@ -338,7 +364,7 @@ const WorldMap: React.FC<WorldMapProps> = ({
   };
   useEffect(() => () => { if (animRef.current) cancelAnimationFrame(animRef.current); }, []);
 
-  const flyToPin = (pin: WorldMapDocPin | WorldMapLabelPin) => {
+  const flyToPin = (pin: { id: string; x: number; y: number }) => {
     const vp = viewportRef.current;
     if (!vp || !imgNatural.w) return;
     const vw = vp.clientWidth;
@@ -525,6 +551,38 @@ const WorldMap: React.FC<WorldMapProps> = ({
     window.addEventListener("mouseup", onUp);
   };
 
+  // Drag a text label to move it (moves the draft instead while its editor is open).
+  const startDragText = (e: React.MouseEvent, label: MapTextLabel) => {
+    if (drawing || measuring || addMode !== "none") return;
+    e.preventDefault();
+    e.stopPropagation();
+    const img = imgRef.current;
+    if (!img) return;
+    const rect = img.getBoundingClientRect();
+    const editingThis = textEditor?.id === label.id;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let moved = false;
+    const onMove = (ev: MouseEvent) => {
+      if (!moved && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 3) return;
+      moved = true;
+      const x = Math.max(0, Math.min(100, ((ev.clientX - rect.left) / rect.width) * 100));
+      const y = Math.max(0, Math.min(100, ((ev.clientY - rect.top) / rect.height) * 100));
+      if (editingThis) patchTextDraft({ x, y });
+      else onUpdateText?.({ ...label, x, y });
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      if (moved) {
+        dragEndedAt.current = Date.now();
+        if (!editingThis) onSave();
+      }
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
   // Drag an existing border: "move" shifts the whole shape; "vertex" reshapes one point.
   const startBorderDrag = (
     e: React.MouseEvent,
@@ -577,6 +635,12 @@ const WorldMap: React.FC<WorldMapProps> = ({
   };
 
   const handleImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
+    // Clicking the map while writing a label finishes it (a pan-drag doesn't).
+    if (textEditor) {
+      if (panMovedRef.current) { panMovedRef.current = false; return; }
+      commitTextEditor();
+      return;
+    }
     if (measuring) {
       if (panMovedRef.current) { panMovedRef.current = false; return; }
       const pt = pctFromEvent(e.clientX, e.clientY);
@@ -596,6 +660,16 @@ const WorldMap: React.FC<WorldMapProps> = ({
       return;
     }
     if (addMode === "none") return;
+    // Text: open the label editor at the clicked spot; nothing is saved until Done.
+    if (addMode === "addText") {
+      if (!armedRef.current) return;
+      const pt = pctFromEvent(e.clientX, e.clientY);
+      if (!pt) return;
+      armedRef.current = false;
+      setAddMode("none");
+      setTextEditor({ id: NEW_TEXT_ID, draft: { id: NEW_TEXT_ID, text: "", x: pt.x, y: pt.y } });
+      return;
+    }
     // Never place while a pin drag is in progress or just finished.
     if (draggingPin) return;
     if (Date.now() - dragEndedAt.current < 250) return;
@@ -620,6 +694,57 @@ const WorldMap: React.FC<WorldMapProps> = ({
       setPendingLabelEntityId("");
     }
   };
+
+  const toggleMeasure = () => {
+    if (measuring) { stopMeasuring(); return; }
+    setAddMode("none");
+    armedRef.current = false;
+    setPopupPinId(null);
+    setTextEditor(null);
+    setMeasuring(true);
+  };
+  const toggleTextMode = () => {
+    const next: AddMode = addMode === "addText" ? "none" : "addText";
+    stopMeasuring();
+    setPopupPinId(null);
+    setTextEditor(null);
+    setAddMode(next);
+    armedRef.current = next !== "none";
+  };
+
+  // Keyboard shortcuts: F fit, M measure, P pins panel, T add text, Esc leaves placing mode.
+  // Embedded (dual view on web) they only apply after the map itself was clicked, so typing
+  // shortcuts never fire while someone works in the editor beside it.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const mapActiveRef = useRef(!embedded);
+  useEffect(() => {
+    if (!embedded) return;
+    const onDown = (e: MouseEvent) => {
+      mapActiveRef.current = !!(rootRef.current && e.target instanceof Node && rootRef.current.contains(e.target));
+    };
+    window.addEventListener("mousedown", onDown, true);
+    return () => window.removeEventListener("mousedown", onDown, true);
+  }, [embedded]);
+  const shortcutRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  shortcutRef.current = (e: KeyboardEvent) => {
+    if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
+    const tg = e.target as HTMLElement | null;
+    if (tg && (tg.tagName === "INPUT" || tg.tagName === "TEXTAREA" || tg.tagName === "SELECT" || tg.isContentEditable)) return;
+    if (!mapActiveRef.current || !imageUrl || imageBroken || drawing || textEditor || confirmDialog) return;
+    const k = e.key.toLowerCase();
+    if (k === "f") fitToView();
+    else if (k === "m") toggleMeasure();
+    else if (k === "p") setPanelOpen(!panelOpen);
+    else if (k === "t" && onAddText) toggleTextMode();
+    else if (e.key === "Escape" && addMode !== "none") { setAddMode("none"); armedRef.current = false; }
+    else return;
+    e.preventDefault();
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => shortcutRef.current(e);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const commitName = () => {
     setEditingName(false);
@@ -1269,7 +1394,7 @@ const WorldMap: React.FC<WorldMapProps> = ({
   const popupLabelRow = popupLabelCol?.rows.find((r) => r.id === popupLabelPin?.entityId) ?? null;
 
   return (
-    <div style={overlayStyle}>
+    <div ref={rootRef} style={overlayStyle}>
       {pickerModal}
       {confirmModal}
       {/* Toolbar */}
@@ -1369,24 +1494,35 @@ const WorldMap: React.FC<WorldMapProps> = ({
           type="button"
           onClick={() => setPanelOpen(!panelOpen)}
           style={panelOpen ? btnActive : btnBase}
-          title={t("wmap.pinsTitle", "List, search and filter the pins on this map")}
+          title={`${t("wmap.pinsTitle", "List, search and filter the pins on this map")} (P)`}
         >
           ☰ {t("wmap.pins", "Pins")} ({docPins.length + labelPins.length})
         </button>
         <button
           type="button"
-          onClick={() => {
-            if (measuring) { stopMeasuring(); return; }
-            setAddMode("none");
-            armedRef.current = false;
-            setPopupPinId(null);
-            setMeasuring(true);
-          }}
+          onClick={toggleMeasure}
           style={measuring ? btnActive : btnBase}
-          title={t("wmap.measureHint", "Click points on the map to measure a route. Backspace removes the last point, Esc stops.")}
+          title={`${t("wmap.measureHint", "Click points on the map to measure a route. Backspace removes the last point, Esc stops.")} (M)`}
         >
           ⟷ {t("wmap.measure", "Measure")}
         </button>
+        {onAddText && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <button
+              type="button"
+              onClick={toggleTextMode}
+              style={addMode === "addText" ? btnActive : btnBase}
+              title={`${t("wmap.addTextTitle", "Write a name or note on the map, like a sea, a region or a road")} (T)`}
+            >
+              <span style={{ fontFamily: MAP_TEXT_FONT, fontWeight: 700 }}>T</span> {t("wmap.addText", "Text")}
+            </button>
+            {addMode === "addText" && (
+              <span style={{ fontSize: 11, color: "var(--accent-text)", opacity: 0.8 }}>
+                {t("wmap.clickToPlaceText", "Click the map where the text goes")}
+              </span>
+            )}
+          </div>
+        )}
 
         <div style={{ width: 1, height: 20, background: "var(--border-2)", margin: "0 4px" }} />
 
@@ -1555,23 +1691,27 @@ const WorldMap: React.FC<WorldMapProps> = ({
               style={{ width: 34, height: 34, borderRadius: 8, border: "1px solid var(--border-2)", background: "var(--bg-elevated)", color: "var(--text)", cursor: "pointer", fontSize: 18, lineHeight: 1 }}>+</button>
             <button type="button" title={t("wmap.zoomOut")} onClick={() => { const vp = viewportRef.current; if (vp) zoomAt(vp.getBoundingClientRect().left + vp.clientWidth / 2, vp.getBoundingClientRect().top + vp.clientHeight / 2, 1 / 1.25); }}
               style={{ width: 34, height: 34, borderRadius: 8, border: "1px solid var(--border-2)", background: "var(--bg-elevated)", color: "var(--text)", cursor: "pointer", fontSize: 18, lineHeight: 1 }}>−</button>
-            <button type="button" title={t("wmap.fitToView")} onClick={fitToView}
+            <button type="button" title={`${t("wmap.fitToView")} (F)`} onClick={fitToView}
               style={{ width: 34, height: 34, borderRadius: 8, border: "1px solid var(--border-2)", background: "var(--bg-elevated)", color: "var(--text)", cursor: "pointer", fontSize: 13, lineHeight: 1 }}>⤢</button>
           </div>
         )}
         {/* Pins panel: search, layer toggles, click a pin to fly to it */}
         {panelOpen && !imageBroken && (() => {
           const q = pinSearch.trim().toLowerCase();
-          type Row = { kind: "doc" | "label"; pin: WorldMapDocPin | WorldMapLabelPin; name: string; group: string; color: string; hidden: boolean };
+          type Row = { kind: "doc" | "label" | "text"; pin: { id: string; x: number; y: number }; name: string; group: string; color: string; glyph: string; region: boolean; hidden: boolean };
           const all: Row[] = [
             ...docPins.map((p): Row => {
               const d = documents.find((x) => x.id === p.docId);
-              return { kind: "doc", pin: p, name: d?.title || p.docId, group: t("wmap.layerDocs", "Documents"), color: p.color ?? "var(--accent)", hidden: !layers.docs };
+              return { kind: "doc", pin: p, name: d?.title || p.docId, group: t("wmap.layerDocs", "Documents"), color: p.color ?? "var(--accent)", glyph: pinGlyph(p.icon), region: !!p.border && p.border.length >= 3, hidden: !layers.docs };
             }),
             ...labelPins.map((p): Row => {
               const col = collections.find((c) => c.id === p.collectionId);
               const row = col?.rows.find((r) => r.id === p.entityId);
-              return { kind: "label", pin: p, name: row ? entityLabel(row) || row.id : p.entityId, group: col?.name ?? "?", color: p.color ?? col?.color ?? "var(--accent)", hidden: !layers.records };
+              return { kind: "label", pin: p, name: row ? entityLabel(row) || row.id : p.entityId, group: col?.name ?? "?", color: p.color ?? col?.color ?? "var(--accent)", glyph: pinGlyph(p.icon), region: !!p.border && p.border.length >= 3, hidden: !layers.records };
+            }),
+            ...(onAddText ? texts : []).map((p): Row => {
+              const c = p.color ?? MAP_TEXT_DEFAULT_COLOR;
+              return { kind: "text", pin: p, name: p.text.replace(/\s+/g, " "), group: t("wmap.layerTexts", "Text"), color: isLightText(c) ? "#555" : c, glyph: "T", region: false, hidden: !layers.texts };
             }),
           ];
           const rows = all.filter((r) => !q || r.name.toLowerCase().includes(q) || r.group.toLowerCase().includes(q));
@@ -1606,6 +1746,7 @@ const WorldMap: React.FC<WorldMapProps> = ({
                   {toggle("records", t("wmap.layerRecords", "Records"))}
                   {toggle("regions", t("wmap.layerRegions", "Regions"))}
                   {toggle("names", t("wmap.layerNames", "Names"))}
+                  {onAddText && toggle("texts", t("wmap.layerTexts", "Text"))}
                 </div>
               </div>
               <div style={{ flex: 1, overflowY: "auto", padding: 6 }}>
@@ -1619,7 +1760,7 @@ const WorldMap: React.FC<WorldMapProps> = ({
                         key={r.pin.id}
                         type="button"
                         onClick={() => {
-                          if (r.hidden) setLayer(r.kind === "doc" ? "docs" : "records", true);
+                          if (r.hidden) setLayer(r.kind === "doc" ? "docs" : r.kind === "text" ? "texts" : "records", true);
                           stopMeasuring();
                           flyToPin(r.pin);
                         }}
@@ -1628,10 +1769,10 @@ const WorldMap: React.FC<WorldMapProps> = ({
                         style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", border: "none", borderRadius: 6, background: highlightPinId === r.pin.id ? "var(--bg-hover)" : "transparent", color: "var(--text)", cursor: "pointer", fontSize: 12, textAlign: "left", opacity: r.hidden ? 0.45 : 1 }}
                       >
                         <span style={{ width: 18, height: 18, flexShrink: 0, borderRadius: 9, background: r.color, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, lineHeight: 1 }}>
-                          {pinGlyph(r.pin.icon)}
+                          {r.kind === "text" ? <span style={{ fontFamily: MAP_TEXT_FONT, fontWeight: 700 }}>T</span> : r.glyph}
                         </span>
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
-                        {r.pin.border && r.pin.border.length >= 3 && <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-dim)" }} title={t("wmap.layerRegions", "Regions")}>▱</span>}
+                        {r.region && <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-dim)" }} title={t("wmap.layerRegions", "Regions")}>▱</span>}
                       </button>
                     ))}
                   </div>
@@ -1694,6 +1835,114 @@ const WorldMap: React.FC<WorldMapProps> = ({
                   </button>
                 </div>
               )}
+            </div>
+          );
+        })()}
+
+        {/* Text label editor (new or existing label); the label previews live on the map */}
+        {textEditor && !imageBroken && (() => {
+          const d = textEditor.draft;
+          const isNew = textEditor.id === NEW_TEXT_ID;
+          const vp = viewportRef.current;
+          const vw = vp?.clientWidth ?? 800;
+          const vh = vp?.clientHeight ?? 600;
+          const at = toScreen(d.x, d.y);
+          const W = 330;
+          const fs = mapTextFontPx(d.size, imgNatural.w) * zoom;
+          const left = Math.max(8, Math.min(vw - W - 8, at.left - W / 2));
+          // Below the label when there is room, otherwise above it.
+          const below = at.top + fs / 2 + 14;
+          const top = below + 290 < vh ? below : Math.max(8, at.top - fs / 2 - 14 - 290);
+          const curColor = (d.color ?? MAP_TEXT_DEFAULT_COLOR).toLowerCase();
+          const chip = (active: boolean): React.CSSProperties => ({ ...(active ? btnActive : btnBase), padding: "4px 8px", minWidth: 30 });
+          const sizeLabel: Record<string, string> = { s: "S", m: "M", l: "L", xl: "XL" };
+          return (
+            <div
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              onWheel={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setTextEditor(null); }
+              }}
+              role="dialog"
+              aria-label={t("wmap.textEditor", "Map text")}
+              style={{ position: "absolute", left, top, width: W, zIndex: 70, background: "var(--bg-elevated)", border: "1px solid var(--border-2)", borderRadius: 10, padding: 12, boxShadow: "0 10px 28px rgba(0,0,0,0.45)", display: "flex", flexDirection: "column", gap: 10, cursor: "default" }}
+            >
+              <textarea
+                autoFocus
+                rows={2}
+                value={d.text}
+                placeholder={t("wmap.textInputPh", "e.g. The Sunken Sea")}
+                onChange={(e) => patchTextDraft({ text: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); commitTextEditor(); }
+                }}
+                style={{ ...inputStyle, width: "100%", boxSizing: "border-box", resize: "vertical", fontFamily: MAP_TEXT_FONT, fontSize: 14 }}
+              />
+              <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: -6 }}>{t("wmap.textEnterHint", "Enter to finish · Shift+Enter for a new line")}</div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 11, color: "var(--text-2)", width: 52 }}>{t("wmap.textSize", "Size")}</span>
+                {MAP_TEXT_SIZES.map((sz) => (
+                  <button key={sz} type="button" style={chip((d.size ?? "m") === sz)} onClick={() => patchTextDraft({ size: sz })}>{sizeLabel[sz]}</button>
+                ))}
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 11, color: "var(--text-2)", width: 52 }}>{t("wmap.textStyle", "Style")}</span>
+                <button type="button" style={{ ...chip(!!d.italic), fontStyle: "italic", fontFamily: MAP_TEXT_FONT }} onClick={() => patchTextDraft({ italic: !d.italic })} title={t("wmap.textItalic", "Italic")} aria-pressed={!!d.italic}>I</button>
+                <button type="button" style={{ ...chip(!!d.caps), letterSpacing: "0.12em", fontFamily: MAP_TEXT_FONT }} onClick={() => patchTextDraft({ caps: !d.caps })} title={t("wmap.textCaps", "Spaced capitals")} aria-pressed={!!d.caps}>AA</button>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 11, color: "var(--text-2)", width: 52 }}>{t("wmap.pinColor", "Colour")}</span>
+                {MAP_TEXT_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    aria-label={c}
+                    onClick={() => patchTextDraft({ color: c })}
+                    style={{ width: 20, height: 20, borderRadius: 10, background: c, border: curColor === c ? "2px solid var(--accent, #4f8cff)" : "1px solid var(--border-3)", boxShadow: curColor === c ? "0 0 0 2px var(--bg-elevated) inset" : "none", cursor: "pointer", padding: 0 }}
+                  />
+                ))}
+                <input
+                  type="color"
+                  value={/^#[0-9a-f]{6}$/i.test(curColor) ? curColor : "#ffffff"}
+                  onChange={(e) => patchTextDraft({ color: e.target.value })}
+                  title={t("wmap.customColor", "Custom colour")}
+                  style={{ width: 24, height: 22, padding: 0, border: "none", background: "transparent", cursor: "pointer" }}
+                />
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 11, color: "var(--text-2)", width: 52 }}>{t("wmap.textAngle", "Angle")}</span>
+                <input
+                  type="range"
+                  min={-90}
+                  max={90}
+                  step={1}
+                  value={d.rotation ?? 0}
+                  onChange={(e) => patchTextDraft({ rotation: Number(e.target.value) })}
+                  style={{ flex: 1 }}
+                  aria-label={t("wmap.textAngle", "Angle")}
+                />
+                <button type="button" style={{ ...btnBase, padding: "2px 6px", fontSize: 11, minWidth: 40 }} onClick={() => patchTextDraft({ rotation: 0 })} title={t("wmap.resetStyle", "Reset")}>
+                  {Math.round(d.rotation ?? 0)}°
+                </button>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
+                {!isNew && (
+                  <button type="button" style={{ ...btnBase, color: "var(--danger, #e5484d)", borderColor: "var(--danger, #e5484d)" }} onClick={() => deleteTextLabel(textEditor.id)}>
+                    {t("common.delete", "Delete")}
+                  </button>
+                )}
+                <span style={{ flex: 1 }} />
+                <button type="button" style={btnBase} onClick={() => setTextEditor(null)}>{t("common.cancel", "Cancel")}</button>
+                <button type="button" style={{ ...btnActive, opacity: d.text.trim() ? 1 : 0.5 }} disabled={!d.text.trim()} onClick={commitTextEditor}>
+                  {isNew ? t("wmap.placeText", "Place text") : t("common.done", "Done")}
+                </button>
+              </div>
             </div>
           );
         })()}
@@ -1897,6 +2146,65 @@ const WorldMap: React.FC<WorldMapProps> = ({
               </>
             )}
           </svg>
+
+          {/* Text labels: painted on the map, so they scale with zoom (pins sit above them) */}
+          {layers.texts && imgNatural.w > 0 && (() => {
+            const list: MapTextLabel[] = texts.map((l) => (textEditor && textEditor.id === l.id ? textEditor.draft : l));
+            if (textEditor && textEditor.id === NEW_TEXT_ID) list.push(textEditor.draft);
+            const interactive = !drawing && !measuring && addMode === "none";
+            return list.map((lbl) => {
+              const s = toScreen(lbl.x, lbl.y);
+              const fs = mapTextFontPx(lbl.size, imgNatural.w) * zoom;
+              const editing = textEditor?.id === lbl.id;
+              if (fs < 4 && !editing) return null; // too small to read at this zoom
+              const color = lbl.color ?? MAP_TEXT_DEFAULT_COLOR;
+              const halo = mapTextHalo(color);
+              const blur = Math.max(2, fs * 0.14);
+              const empty = !lbl.text.trim();
+              return (
+                <div
+                  key={`txt-${lbl.id}`}
+                  data-map-text={lbl.id}
+                  style={{
+                    position: "absolute",
+                    left: s.left,
+                    top: s.top,
+                    transform: `translate(-50%, -50%) rotate(${lbl.rotation ?? 0}deg)`,
+                    fontFamily: MAP_TEXT_FONT,
+                    fontSize: Math.max(fs, 4),
+                    fontWeight: 700,
+                    fontStyle: lbl.italic ? "italic" : "normal",
+                    letterSpacing: lbl.caps ? "0.2em" : "0.02em",
+                    textTransform: lbl.caps ? "uppercase" : "none",
+                    color,
+                    opacity: empty ? 0.55 : 1,
+                    textShadow: `0 0 ${blur}px ${halo}, 0 0 ${blur / 2}px ${halo}, 0 0 1px ${halo}`,
+                    whiteSpace: "pre",
+                    textAlign: "center",
+                    lineHeight: 1.1,
+                    padding: "0 0.15em",
+                    borderRadius: 4,
+                    outline: editing ? "1px dashed var(--accent, #4f8cff)" : highlightPinId === lbl.id ? `1px solid ${halo}` : "none",
+                    outlineOffset: 4,
+                    cursor: "move",
+                    userSelect: "none",
+                    WebkitUserSelect: "none",
+                    pointerEvents: interactive ? "auto" : "none",
+                    zIndex: 5,
+                  }}
+                  title={interactive ? t("wmap.textEditHint", "Drag to move · double-click or right-click to edit") : undefined}
+                  onMouseDown={(e) => { if (e.button === 2) { e.preventDefault(); return; } startDragText(e, lbl); }}
+                  onClick={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => { e.stopPropagation(); if (!editing) openTextEditor(lbl); }}
+                  onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (!editing) openTextEditor(lbl); }}
+                  onMouseEnter={() => setHighlightPinId(lbl.id)}
+                  onMouseLeave={() => setHighlightPinId((cur) => (cur === lbl.id ? null : cur))}
+                >
+                  {empty ? t("wmap.textPh", "Your text") : lbl.text}
+                </div>
+              );
+            });
+          })()}
 
           {/* Doc pins */}
           {layers.docs && docPins.map((pin) => {
