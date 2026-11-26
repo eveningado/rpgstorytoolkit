@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import type { Id, Document, Collection, WorldMapDocPin, WorldMapLabelPin, WorldNameCtx, MapScale, MapTextLabel } from "./types";
+import type { Id, Document, Collection, WorldMapDocPin, WorldMapLabelPin, WorldNameCtx, MapScale, MapTextLabel, MapPinPatch } from "./types";
 import { entityLabel } from "./entityLabel";
 import { useLang } from "./i18n";
 import { MAP_PIN_ICONS, pinGlyph, MAP_TEXT_SIZES, MAP_TEXT_COLORS, MAP_TEXT_DEFAULT_COLOR, MAP_TEXT_FONT, mapTextFontPx, mapTextHalo, isLightColor as isLightText } from "./mapLabels";
@@ -52,7 +52,7 @@ interface WorldMapProps {
   onOpenRecord?: (collectionId: Id, entityId: Id) => void;
   onSave: () => void;
   // Marker look per pin (icon + colour). Optional so older callers keep working.
-  onSetPinStyle?: (pinKind: "doc" | "label", pinId: Id, style: { icon?: string | null; color?: string | null }) => void;
+  onSetPinStyle?: (pinKind: "doc" | "label", pinId: Id, style: MapPinPatch) => void;
   // Measure tool scale for the open map (full image width = distance units).
   scale?: MapScale | null;
   onSetScale?: (scale: MapScale | null) => void;
@@ -160,6 +160,11 @@ const WorldMap: React.FC<WorldMapProps> = ({
   const [nameEntityId, setNameEntityId] = useState(worldNameEntityId ?? "");
 
   const [popupPinId, setPopupPinId] = useState<string | null>(null);
+  // Private note editor inside a pin's popup (only one at a time).
+  const [noteEdit, setNoteEdit] = useState<{ pinId: string; draft: string } | null>(null);
+  useEffect(() => {
+    if (noteEdit && noteEdit.pinId !== popupPinId) setNoteEdit(null);
+  }, [popupPinId, noteEdit]);
   const [draggingPin, setDraggingPin] = useState<{ id: string; kind: "doc" | "label" } | null>(null);
 
   // ── Pan / zoom canvas ───────────────────────────────────────────────────────
@@ -1386,6 +1391,58 @@ const WorldMap: React.FC<WorldMapProps> = ({
     ? entityLabel(selectedEntity)
     : "";
 
+  // Note block for a pin popup: shows the note, or a small editor while editing.
+  const saveNote = (kind: "doc" | "label", pinId: string, text: string) => {
+    if (!onSetPinStyle) return;
+    onSetPinStyle(kind, pinId as Id, { note: text.trim() ? text.trim() : null });
+    onSave();
+    setNoteEdit(null);
+  };
+  const renderPinNote = (kind: "doc" | "label", pin: { id: string; note?: string }) => {
+    if (noteEdit && noteEdit.pinId === pin.id && onSetPinStyle) {
+      const ed = noteEdit;
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10, textAlign: "start" }}>
+          <textarea
+            autoFocus
+            rows={4}
+            maxLength={2000}
+            value={ed.draft}
+            placeholder={t("wmap.notePh", "Travel notes, secrets, reminders...")}
+            onChange={(e) => setNoteEdit({ pinId: ed.pinId, draft: e.target.value })}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Escape") { e.preventDefault(); setNoteEdit(null); }
+              else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveNote(kind, ed.pinId, ed.draft); }
+            }}
+            style={{ ...inputStyle, width: 260, maxWidth: "100%", boxSizing: "border-box", resize: "vertical", minHeight: 70, fontSize: 12, lineHeight: 1.5, fontFamily: "inherit" }}
+          />
+          <div style={{ fontSize: 10, color: "var(--text-dim)", lineHeight: 1.4 }}>{t("wmap.notePrivate", "Only you see this. Notes aren't shown on the public wiki.")}</div>
+          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+            <button type="button" style={{ ...btnBase, fontSize: 11 }} onClick={() => setNoteEdit(null)}>{t("common.cancel")}</button>
+            <button type="button" style={{ ...btnActive, fontSize: 11 }} onClick={() => saveNote(kind, ed.pinId, ed.draft)}>{t("common.save")}</button>
+          </div>
+        </div>
+      );
+    }
+    if (!pin.note) return null;
+    return (
+      <div
+        onClick={onSetPinStyle ? () => setNoteEdit({ pinId: pin.id, draft: pin.note ?? "" }) : undefined}
+        title={onSetPinStyle ? t("wmap.editNote", "Edit note") : undefined}
+        style={{ fontSize: 12, lineHeight: 1.5, color: "var(--text)", textAlign: "start", whiteSpace: "pre-wrap", overflowWrap: "anywhere", maxHeight: 140, overflowY: "auto", background: "var(--bg-hover)", borderLeft: "3px solid var(--accent)", borderRadius: 6, padding: "6px 8px", marginBottom: 10, cursor: onSetPinStyle ? "text" : "default" }}
+      >
+        {pin.note}
+      </div>
+    );
+  };
+  const noteButton = (pin: { id: string; note?: string }) =>
+    onSetPinStyle && !(noteEdit && noteEdit.pinId === pin.id) ? (
+      <button type="button" onClick={() => setNoteEdit({ pinId: pin.id, draft: pin.note ?? "" })} style={{ ...btnBase, fontSize: 11 }}>
+        ✎ {pin.note ? t("wmap.editNote", "Edit note") : t("wmap.addNote", "Add note")}
+      </button>
+    ) : null;
+
   const popupPin = docPins.find((p) => p.id === popupPinId);
   const popupDoc = popupPin ? documents.find((d) => d.id === popupPin.docId) : null;
   // Record (label) pin popup: same "read more" card, showing the record's description.
@@ -1698,23 +1755,23 @@ const WorldMap: React.FC<WorldMapProps> = ({
         {/* Pins panel: search, layer toggles, click a pin to fly to it */}
         {panelOpen && !imageBroken && (() => {
           const q = pinSearch.trim().toLowerCase();
-          type Row = { kind: "doc" | "label" | "text"; pin: { id: string; x: number; y: number }; name: string; group: string; color: string; glyph: string; region: boolean; hidden: boolean };
+          type Row = { kind: "doc" | "label" | "text"; pin: { id: string; x: number; y: number }; name: string; group: string; color: string; glyph: string; region: boolean; hidden: boolean; note?: string };
           const all: Row[] = [
             ...docPins.map((p): Row => {
               const d = documents.find((x) => x.id === p.docId);
-              return { kind: "doc", pin: p, name: d?.title || p.docId, group: t("wmap.layerDocs", "Documents"), color: p.color ?? "var(--accent)", glyph: pinGlyph(p.icon), region: !!p.border && p.border.length >= 3, hidden: !layers.docs };
+              return { kind: "doc", pin: p, name: d?.title || p.docId, group: t("wmap.layerDocs", "Documents"), color: p.color ?? "var(--accent)", glyph: pinGlyph(p.icon), region: !!p.border && p.border.length >= 3, hidden: !layers.docs, note: p.note };
             }),
             ...labelPins.map((p): Row => {
               const col = collections.find((c) => c.id === p.collectionId);
               const row = col?.rows.find((r) => r.id === p.entityId);
-              return { kind: "label", pin: p, name: row ? entityLabel(row) || row.id : p.entityId, group: col?.name ?? "?", color: p.color ?? col?.color ?? "var(--accent)", glyph: pinGlyph(p.icon), region: !!p.border && p.border.length >= 3, hidden: !layers.records };
+              return { kind: "label", pin: p, name: row ? entityLabel(row) || row.id : p.entityId, group: col?.name ?? "?", color: p.color ?? col?.color ?? "var(--accent)", glyph: pinGlyph(p.icon), region: !!p.border && p.border.length >= 3, hidden: !layers.records, note: p.note };
             }),
             ...(onAddText ? texts : []).map((p): Row => {
               const c = p.color ?? MAP_TEXT_DEFAULT_COLOR;
               return { kind: "text", pin: p, name: p.text.replace(/\s+/g, " "), group: t("wmap.layerTexts", "Text"), color: isLightText(c) ? "#555" : c, glyph: "T", region: false, hidden: !layers.texts };
             }),
           ];
-          const rows = all.filter((r) => !q || r.name.toLowerCase().includes(q) || r.group.toLowerCase().includes(q));
+          const rows = all.filter((r) => !q || r.name.toLowerCase().includes(q) || r.group.toLowerCase().includes(q) || (r.note ?? "").toLowerCase().includes(q));
           const groups = new Map<string, Row[]>();
           for (const r of rows) groups.set(r.group, [...(groups.get(r.group) ?? []), r]);
           const toggle = (k: keyof MapLayers, label: string) => (
@@ -1771,7 +1828,10 @@ const WorldMap: React.FC<WorldMapProps> = ({
                         <span style={{ width: 18, height: 18, flexShrink: 0, borderRadius: 9, background: r.color, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, lineHeight: 1 }}>
                           {r.kind === "text" ? <span style={{ fontFamily: MAP_TEXT_FONT, fontWeight: 700 }}>T</span> : r.glyph}
                         </span>
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
+                        <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
+                          {r.note && <span style={{ fontSize: 10.5, color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note.replace(/\s+/g, " ")}</span>}
+                        </span>
                         {r.region && <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-dim)" }} title={t("wmap.layerRegions", "Regions")}>▱</span>}
                       </button>
                     ))}
@@ -2375,12 +2435,15 @@ const WorldMap: React.FC<WorldMapProps> = ({
                 maxWidth: 300,
                 boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
                 pointerEvents: "all",
+                cursor: "default",
               }}
               onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
             >
               <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 6, color: "var(--text)" }}>
                 {popupDoc.title || popupDoc.id}
               </div>
+              {renderPinNote("doc", popupPin)}
               <div
                 style={{
                   fontSize: 12,
@@ -2403,6 +2466,7 @@ const WorldMap: React.FC<WorldMapProps> = ({
                 >
                   {t("common.readMore")}
                 </button>
+                {noteButton(popupPin)}
               </div>
             </div>
           )}
@@ -2424,12 +2488,15 @@ const WorldMap: React.FC<WorldMapProps> = ({
                 maxWidth: 300,
                 boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
                 pointerEvents: "all",
+                cursor: "default",
               }}
               onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
             >
               <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 6, color: popupLabelCol?.color ?? "var(--text)" }}>
                 {entityLabel(popupLabelRow) || popupLabelRow.id}
               </div>
+              {renderPinNote("label", popupLabelPin)}
               {(() => {
                 const desc = String((popupLabelRow.values as any)?.description ?? "").replace(/\s+/g, " ").trim();
                 if (!desc) {
@@ -2443,9 +2510,10 @@ const WorldMap: React.FC<WorldMapProps> = ({
               })()}
               {(() => {
                 const sub = mapForRecord(popupLabelPin.collectionId, popupLabelPin.entityId);
-                if (!onOpenRecord && !sub) return null;
+                const noteBtn = noteButton(popupLabelPin);
+                if (!onOpenRecord && !sub && !noteBtn) return null;
                 return (
-                  <div style={{ display: "flex", gap: 6 }}>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     {onOpenRecord && (
                       <button
                         type="button"
@@ -2460,6 +2528,7 @@ const WorldMap: React.FC<WorldMapProps> = ({
                         {t("wmap.openMap", "Open map")} ▸
                       </button>
                     )}
+                    {noteBtn}
                   </div>
                 );
               })()}
@@ -2492,6 +2561,11 @@ const WorldMap: React.FC<WorldMapProps> = ({
               {onSetPinStyle && (
                 <button type="button" style={item} onClick={() => { close(); setStyleEditor({ kind: m.kind, pinId: m.pinId, x: m.x, y: m.y }); }}>{t("wmap.pinStyle", "Icon and colour…")}</button>
               )}
+              {onSetPinStyle && (
+                <button type="button" style={item} onClick={() => { close(); setPopupPinId(m.pinId); setNoteEdit({ pinId: m.pinId, draft: pin.note ?? "" }); }}>
+                  {pin.note ? t("wmap.editNote", "Edit note") : t("wmap.addNote", "Add note")}…
+                </button>
+              )}
               {hasBorder ? (
                 <button type="button" style={item} onClick={() => { close(); deleteBorder(m.kind, m.pinId); }}>{t("wmap.deleteBorder")}</button>
               ) : (
@@ -2512,7 +2586,7 @@ const WorldMap: React.FC<WorldMapProps> = ({
         const pin = ed.kind === "doc" ? docPins.find((p) => p.id === ed.pinId) : labelPins.find((p) => p.id === ed.pinId);
         if (!pin) return null;
         const close = () => setStyleEditor(null);
-        const apply = (style: { icon?: string | null; color?: string | null }) => { onSetPinStyle(ed.kind, ed.pinId as Id, style); onSave(); };
+        const apply = (style: MapPinPatch) => { onSetPinStyle(ed.kind, ed.pinId as Id, style); onSave(); };
         const cur = pinColor(ed.kind, pin);
         const cell: React.CSSProperties = { width: 30, height: 30, borderRadius: 7, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 15, lineHeight: 1 };
         return (

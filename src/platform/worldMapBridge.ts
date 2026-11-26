@@ -1,7 +1,7 @@
 // Event bridge between the main window (owner of project state) and the
 // popped-out world map window (a view + command sender). Desktop-only.
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { Document, Collection, WorldMapDocPin, WorldMapLabelPin, WorldNameCtx, MapScale, MapTextLabel } from '../types';
+import type { Document, Collection, WorldMapDocPin, WorldMapLabelPin, WorldNameCtx, MapScale, MapTextLabel, MapPinPatch } from '../types';
 
 export interface WorldMapState {
   imageUrl: string | null;
@@ -39,7 +39,7 @@ export type WorldMapMutation =
   | { kind: 'removeLabelPin'; pinId: string }
   | { kind: 'setDocPinBorder'; pinId: string; border: { x: number; y: number }[] | null }
   | { kind: 'setLabelPinBorder'; pinId: string; border: { x: number; y: number }[] | null }
-  | { kind: 'setPinStyle'; pinKind: 'doc' | 'label'; pinId: string; style: { icon?: string | null; color?: string | null } }
+  | { kind: 'setPinStyle'; pinKind: 'doc' | 'label'; pinId: string; style: MapPinPatch }
   | { kind: 'setScale'; scale: MapScale | null }
   | { kind: 'addText'; label: MapTextLabel }
   | { kind: 'updateText'; label: MapTextLabel }

@@ -206,6 +206,7 @@ export interface WorldMapDocPin {
   border?: MapBorderPoint[]; // optional drawn region linked to this pin
   icon?: string; // optional marker icon key (see MAP_PIN_ICONS in WorldMap.tsx)
   color?: string; // optional marker colour (hex); defaults to the accent / table colour
+  note?: string; // optional private note shown in the pin's popup (never published to the wiki)
 }
 
 export interface WorldMapLabelPin {
@@ -217,6 +218,14 @@ export interface WorldMapLabelPin {
   border?: MapBorderPoint[];
   icon?: string;
   color?: string;
+  note?: string;
+}
+
+// A change to one pin's look or note. null clears a field back to its default.
+export interface MapPinPatch {
+  icon?: string | null;
+  color?: string | null;
+  note?: string | null;
 }
 
 // Free text written on the map (sea names, region names, notes), independent of pins.

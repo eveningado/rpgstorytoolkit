@@ -19,6 +19,7 @@ import type {
   Project,
   MapScale,
   MapTextLabel,
+  MapPinPatch,
   Document as Doc,
   Collection,
   CollectionRow,
@@ -131,6 +132,14 @@ const COLOR_PALETTE = [
 
 const getDefaultColor = (index: number): string =>
   COLOR_PALETTE[index % COLOR_PALETTE.length].value;
+
+// Copy of a world-map pin without its private note (for the public wiki snapshot).
+const withoutPinNote = <T extends { note?: string }>(pin: T): T => {
+  if (pin.note === undefined) return pin;
+  const copy = { ...pin };
+  delete copy.note;
+  return copy;
+};
 
 // Upsert the currently-open world map (legacy live fields) into project.worldMaps.
 // Returns the updated maps array + the active map's id (generating one if needed).
@@ -5024,8 +5033,9 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
       ? {
           imagePath: p.view?.worldMapImagePath ?? null,
           name: p.view?.worldMapName ?? "",
-          docPins: (p.worldMapDocPins ?? []),
-          labelPins: (p.worldMapLabelPins ?? []),
+          // Pin notes are the author's private notes: never published.
+          docPins: (p.worldMapDocPins ?? []).map(withoutPinNote),
+          labelPins: (p.worldMapLabelPins ?? []).map(withoutPinNote),
           ...((p.worldMapTexts?.length ?? 0) > 0 ? { texts: p.worldMapTexts } : {}),
         }
       : null;
@@ -7306,17 +7316,18 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
     });
   };
 
-  // Marker icon / colour for one pin (null clears back to the default look).
+  // Marker icon / colour / private note for one pin (null clears back to the default).
   const setWorldMapPinStyle = (
     pinKind: "doc" | "label",
     pinId: Id,
-    style: { icon?: string | null; color?: string | null }
+    style: MapPinPatch
   ) => {
-    const apply = <T extends { id: Id; icon?: string; color?: string }>(p: T): T => {
+    const apply = <T extends { id: Id; icon?: string; color?: string; note?: string }>(p: T): T => {
       if (p.id !== pinId) return p;
       const next = { ...p };
       if (style.icon !== undefined) { if (style.icon) next.icon = style.icon; else delete next.icon; }
       if (style.color !== undefined) { if (style.color) next.color = style.color; else delete next.color; }
+      if (style.note !== undefined) { const n = (style.note ?? "").trim(); if (n) next.note = n; else delete next.note; }
       return next;
     };
     setProject((prev) => {
@@ -7645,7 +7656,7 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
       removeLabelPin: (pinId: Id) => removeWorldMapLabelPin(pinId),
       setDocPinBorder: (pinId: Id, border: { x: number; y: number }[] | null) => setWorldMapDocPinBorder(pinId, border),
       setLabelPinBorder: (pinId: Id, border: { x: number; y: number }[] | null) => setWorldMapLabelPinBorder(pinId, border),
-      setPinStyle: (pinKind: "doc" | "label", pinId: Id, style: { icon?: string | null; color?: string | null }) => setWorldMapPinStyle(pinKind, pinId, style),
+      setPinStyle: (pinKind: "doc" | "label", pinId: Id, style: MapPinPatch) => setWorldMapPinStyle(pinKind, pinId, style),
       setScale: (scale: MapScale | null) => setWorldMapScale(scale),
       addText: (label: MapTextLabel) => addWorldMapText(label),
       updateText: (label: MapTextLabel) => updateWorldMapText(label),
