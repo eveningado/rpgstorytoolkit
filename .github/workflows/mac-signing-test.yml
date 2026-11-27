@@ -1,0 +1,55 @@
+# Manual test: builds the Mac app signed + notarised with the APPLE_* secrets and
+# uploads the .dmg as a workflow artifact. Publishes NO release. Run it from the
+# Actions tab after changing the Apple secrets to check they work.
+name: Mac signing test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VITE_SUPABASE_URL: https://pkhqngaovzxvphtrpvdp.supabase.co
+  VITE_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBraHFuZ2Fvdnp4dnBodHJwdmRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU0ODc3MjksImV4cCI6MjA4MTA2MzcyOX0.Fs9Sfh8i-vagqToarGrRI92I_ghXYvZ56OmaNA6FK4c
+
+jobs:
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+      - run: npm ci
+      - name: Build, sign and notarise
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run tauri build -- --target universal-apple-darwin
+      - name: Verify signature and notarisation
+        run: |
+          B=src-tauri/target/universal-apple-darwin/release/bundle
+          APP=$(ls -d "$B"/macos/*.app | head -1)
+          DMG=$(ls "$B"/dmg/*.dmg | head -1)
+          echo "App: $APP"; echo "DMG: $DMG"
+          codesign -dv --verbose=2 "$APP" 2>&1 | grep -E "Authority|TeamIdentifier|flags" || true
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          spctl -a -vvv -t exec "$APP"
+          xcrun stapler validate "$APP"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-mac-dmg
+          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          retention-days: 7
