@@ -79,9 +79,8 @@ jobs:
             cat > notes.md <<EOF
           RPG Story Toolkit $VERSION for Mac (Apple Silicon and Intel) and Windows.
 
-          These builds aren't code-signed yet, so your computer will warn you the first time:
-          - **Mac:** open the .dmg and drag the app to Applications. The first time you open it, macOS will block it: go to System Settings > Privacy & Security, scroll down and click Open Anyway.
-          - **Windows:** on the SmartScreen prompt, click More info > Run anyway.
+          - **Mac:** open the .dmg and drag the app to Applications. The app is signed and notarised by Apple, so it opens normally.
+          - **Windows:** the installer isn't code-signed yet, so on the SmartScreen prompt click More info > Run anyway.
 
           The desktop app is free and fully local: your projects are plain folders on your computer. Signing in is only needed to sync with the web app (Pro).
           EOF
