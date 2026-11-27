@@ -21,8 +21,11 @@
 # releases/latest/download/latest.json. Keep that private key safe: losing it means
 # installed copies can't update in-app any more.
 #
-# Builds are not yet code-signed (Apple Developer signing/notarization to be added via
-# APPLE_* secrets; Windows Authenticode not set up).
+# Mac signing + notarisation: switched on automatically once these repo secrets exist:
+# APPLE_CERTIFICATE (base64 .p12 of a "Developer ID Application" certificate),
+# APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY, APPLE_ID, APPLE_PASSWORD
+# (an app-specific password) and APPLE_TEAM_ID. Without APPLE_CERTIFICATE the Mac
+# build stays unsigned, exactly as before. Windows Authenticode is not set up.
 name: Desktop release
 
 on:
@@ -118,6 +121,29 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
       - run: npm ci
+      # Only pass the Apple variables to the build when the certificate secret exists:
+      # Tauri treats a present-but-empty APPLE_CERTIFICATE as a certificate to import
+      # and would fail, so an unset secret must leave the build unsigned as before.
+      - name: Mac signing and notarisation (only when the Apple secrets exist)
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "No APPLE_CERTIFICATE secret: building the Mac app unsigned."
+            exit 0
+          fi
+          for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!v}" ]; then echo "::error::Secret $v is missing; add all six Apple secrets or none."; exit 1; fi
+            echo "$v=${!v}" >> "$GITHUB_ENV"
+          done
+          echo "Apple secrets found: the Mac app will be signed and notarised."
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
