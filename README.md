@@ -35,7 +35,9 @@ commercial service (see [License](#license)).
   a searchable pins panel with layer toggles. Write sea, region and road names
   straight onto the map in your own size, colour and angle. Measure routes in
   your own units once you set a map's scale, and open a city's own map
-  straight from its pin.
+  straight from its pin. Running a game? Mark pins and text as secret and
+  switch to player view to show the map with no tools, no notes and the
+  secrets hidden.
 - **Dialogue pipeline** — author dialogue once, tag it by speaker and scene, and
   export it as structured, engine-readable JSON.
 - **Publish a wiki** — turn your world into a clean, browsable public wiki in one
