@@ -87,6 +87,7 @@ const cleanTextLabel = (l: MapTextLabel): MapTextLabel => {
   if (l.rotation && Number.isFinite(l.rotation)) out.rotation = Math.max(-90, Math.min(90, Math.round(l.rotation)));
   if (l.italic) out.italic = true;
   if (l.caps) out.caps = true;
+  if (l.secret) out.secret = true;
   return out;
 };
 
@@ -291,6 +292,10 @@ const WorldMap: React.FC<WorldMapProps> = ({
   };
   const [pinSearch, setPinSearch] = useState("");
   const [styleEditor, setStyleEditor] = useState<{ kind: "doc" | "label"; pinId: string; x: number; y: number } | null>(null);
+
+  // Player view: a clean presenting mode for GMs (no editing tools, no notes, secret
+  // pins and text hidden). Session-only, so the map always reopens in the editor.
+  const [playerView, setPlayerView] = useState(false);
 
   const [measuring, setMeasuring] = useState(false);
   const [measurePts, setMeasurePts] = useState<{ x: number; y: number }[]>([]);
@@ -717,7 +722,26 @@ const WorldMap: React.FC<WorldMapProps> = ({
     armedRef.current = next !== "none";
   };
 
-  // Keyboard shortcuts: F fit, M measure, P pins panel, T add text, Esc leaves placing mode.
+  // Switch to player view: drop every in-progress tool so nothing editable shows.
+  const enterPlayerView = () => {
+    stopMeasuring();
+    setAddMode("none");
+    armedRef.current = false;
+    setTextEditor(null);
+    setPopupPinId(null);
+    setNoteEdit(null);
+    setPinCtxMenu(null);
+    setStyleEditor(null);
+    setFileMenuOpen(false);
+    setEditingName(false);
+    setDrawing(null);
+    setDrawPoints([]);
+    setCursorPt(null);
+    setPlayerView(true);
+  };
+
+  // Keyboard shortcuts: F fit, M measure, P pins panel, T add text, V player view,
+  // Esc leaves placing mode (or player view).
   // Embedded (dual view on web) they only apply after the map itself was clicked, so typing
   // shortcuts never fire while someone works in the editor beside it.
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -737,7 +761,15 @@ const WorldMap: React.FC<WorldMapProps> = ({
     if (tg && (tg.tagName === "INPUT" || tg.tagName === "TEXTAREA" || tg.tagName === "SELECT" || tg.isContentEditable)) return;
     if (!mapActiveRef.current || !imageUrl || imageBroken || drawing || textEditor || confirmDialog) return;
     const k = e.key.toLowerCase();
+    if (playerView) {
+      if (k === "f") fitToView();
+      else if (k === "v" || e.key === "Escape") setPlayerView(false);
+      else return;
+      e.preventDefault();
+      return;
+    }
     if (k === "f") fitToView();
+    else if (k === "v") enterPlayerView();
     else if (k === "m") toggleMeasure();
     else if (k === "p") setPanelOpen(!panelOpen);
     else if (k === "t" && onAddText) toggleTextMode();
@@ -1454,8 +1486,8 @@ const WorldMap: React.FC<WorldMapProps> = ({
     <div ref={rootRef} style={overlayStyle}>
       {pickerModal}
       {confirmModal}
-      {/* Toolbar */}
-      <div style={toolbarStyle}>
+      {/* Toolbar (hidden in player view) */}
+      {!playerView && <div style={toolbarStyle}>
         {/* File menu (left, next to the name) */}
         {renderFileMenu(true)}
 
@@ -1580,6 +1612,15 @@ const WorldMap: React.FC<WorldMapProps> = ({
             )}
           </div>
         )}
+
+        <button
+          type="button"
+          onClick={enterPlayerView}
+          style={btnBase}
+          title={`${t("wmap.playerViewTitle", "Show the map to your players: no tools, no notes, secret pins and text hidden")} (V)`}
+        >
+          ◉ {t("wmap.playerView", "Player view")}
+        </button>
 
         <div style={{ width: 1, height: 20, background: "var(--border-2)", margin: "0 4px" }} />
 
@@ -1719,7 +1760,7 @@ const WorldMap: React.FC<WorldMapProps> = ({
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
           <button type="button" onClick={onClose} style={btnBase}>{t("common.close")}</button>
         </div>
-      </div>
+      </div>}
 
       {/* Map canvas (pan + zoom) */}
       <div
@@ -1752,10 +1793,46 @@ const WorldMap: React.FC<WorldMapProps> = ({
               style={{ width: 34, height: 34, borderRadius: 8, border: "1px solid var(--border-2)", background: "var(--bg-elevated)", color: "var(--text)", cursor: "pointer", fontSize: 13, lineHeight: 1 }}>⤢</button>
           </div>
         )}
+        {/* Player view bar: what the players see is everything else on screen */}
+        {playerView && (
+          <div
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            style={{ position: "absolute", top: 12, insetInlineEnd: 12, zIndex: 60, display: "flex", alignItems: "center", gap: 6, background: "var(--bg-elevated)", border: "1px solid var(--border-2)", borderRadius: 999, padding: "4px 4px 4px 12px", boxShadow: "0 6px 18px rgba(0,0,0,0.35)", cursor: "default", maxWidth: "calc(100% - 24px)", flexWrap: "wrap" }}
+          >
+            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>◉ {t("wmap.playerView", "Player view")}</span>
+            {mapStack.length > 0 && (
+              <button type="button" onClick={goBackMap} style={{ ...btnBase, borderRadius: 999, fontSize: 11 }}>
+                ◂ {savedMaps.find((m) => m.id === mapStack[mapStack.length - 1])?.name || t("wmap.backTo", "Back to")}
+              </button>
+            )}
+            {typeof document !== "undefined" && document.fullscreenEnabled && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+                  else void rootRef.current?.requestFullscreen().catch(() => {});
+                }}
+                style={{ ...btnBase, borderRadius: 999, fontSize: 11 }}
+              >
+                ⛶ {t("wmap.fullScreen", "Full screen")}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => {}); setPlayerView(false); }}
+              style={{ ...btnActive, borderRadius: 999, fontSize: 11 }}
+              title={`${t("wmap.exitPlayerView", "Back to editing")} (Esc)`}
+            >
+              {t("wmap.exitPlayerView", "Back to editing")}
+            </button>
+          </div>
+        )}
+
         {/* Pins panel: search, layer toggles, click a pin to fly to it */}
-        {panelOpen && !imageBroken && (() => {
+        {panelOpen && !playerView && !imageBroken && (() => {
           const q = pinSearch.trim().toLowerCase();
-          type Row = { kind: "doc" | "label" | "text"; pin: { id: string; x: number; y: number }; name: string; group: string; color: string; glyph: string; region: boolean; hidden: boolean; note?: string };
+          type Row = { kind: "doc" | "label" | "text"; pin: { id: string; x: number; y: number; secret?: boolean }; name: string; group: string; color: string; glyph: string; region: boolean; hidden: boolean; note?: string };
           const all: Row[] = [
             ...docPins.map((p): Row => {
               const d = documents.find((x) => x.id === p.docId);
@@ -1832,7 +1909,12 @@ const WorldMap: React.FC<WorldMapProps> = ({
                           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.name}</span>
                           {r.note && <span style={{ fontSize: 10.5, color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.note.replace(/\s+/g, " ")}</span>}
                         </span>
-                        {r.region && <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-dim)" }} title={t("wmap.layerRegions", "Regions")}>▱</span>}
+                        {(r.region || r.pin.secret) && (
+                          <span style={{ marginInlineStart: "auto", display: "inline-flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+                            {r.pin.secret && <span style={{ fontSize: 9.5, color: "var(--text-dim)", border: "1px dashed var(--border-3)", borderRadius: 4, padding: "0 4px", whiteSpace: "nowrap" }} title={t("wmap.secretTitle", "Hidden in player view and on the public wiki")}>{t("wmap.secretShort", "Secret")}</span>}
+                            {r.region && <span style={{ fontSize: 10, color: "var(--text-dim)" }} title={t("wmap.layerRegions", "Regions")}>▱</span>}
+                          </span>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -1843,7 +1925,7 @@ const WorldMap: React.FC<WorldMapProps> = ({
         })()}
 
         {/* Measure readout */}
-        {measuring && !imageBroken && (() => {
+        {measuring && !playerView && !imageBroken && (() => {
           const frac = lineWidthFraction(measurePts);
           const fieldStyle: React.CSSProperties = { ...inputStyle, width: 80 };
           return (
@@ -1900,7 +1982,7 @@ const WorldMap: React.FC<WorldMapProps> = ({
         })()}
 
         {/* Text label editor (new or existing label); the label previews live on the map */}
-        {textEditor && !imageBroken && (() => {
+        {textEditor && !playerView && !imageBroken && (() => {
           const d = textEditor.draft;
           const isNew = textEditor.id === NEW_TEXT_ID;
           const vp = viewportRef.current;
@@ -1912,7 +1994,7 @@ const WorldMap: React.FC<WorldMapProps> = ({
           const left = Math.max(8, Math.min(vw - W - 8, at.left - W / 2));
           // Below the label when there is room, otherwise above it.
           const below = at.top + fs / 2 + 14;
-          const top = below + 290 < vh ? below : Math.max(8, at.top - fs / 2 - 14 - 290);
+          const top = below + 320 < vh ? below : Math.max(8, at.top - fs / 2 - 14 - 320);
           const curColor = (d.color ?? MAP_TEXT_DEFAULT_COLOR).toLowerCase();
           const chip = (active: boolean): React.CSSProperties => ({ ...(active ? btnActive : btnBase), padding: "4px 8px", minWidth: 30 });
           const sizeLabel: Record<string, string> = { s: "S", m: "M", l: "L", xl: "XL" };
@@ -1991,6 +2073,11 @@ const WorldMap: React.FC<WorldMapProps> = ({
                 </button>
               </div>
 
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text-2)", cursor: "pointer" }}>
+                <input type="checkbox" checked={!!d.secret} onChange={(e) => patchTextDraft({ secret: e.target.checked })} />
+                {t("wmap.hideFromPlayers", "Hide from players")}
+              </label>
+
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
                 {!isNew && (
                   <button type="button" style={{ ...btnBase, color: "var(--danger, #e5484d)", borderColor: "var(--danger, #e5484d)" }} onClick={() => deleteTextLabel(textEditor.id)}>
@@ -2014,7 +2101,7 @@ const WorldMap: React.FC<WorldMapProps> = ({
           if (!(nice > 0)) return null;
           const barPx = nice / unitsPerPx;
           return (
-            <div style={{ position: "absolute", left: panelOpen ? 274 : 14, bottom: 14, zIndex: 50, pointerEvents: "none", display: "flex", flexDirection: "column", gap: 3 }}>
+            <div style={{ position: "absolute", left: panelOpen && !playerView ? 274 : 14, bottom: 14, zIndex: 50, pointerEvents: "none", display: "flex", flexDirection: "column", gap: 3 }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", textShadow: "0 1px 3px rgba(0,0,0,0.9)" }}>{fmtNum(nice)} {scale.unit}</span>
               <div style={{ width: barPx, height: 6, border: "2px solid #fff", borderTop: "none", boxShadow: "0 1px 3px rgba(0,0,0,0.8)" }} />
             </div>
@@ -2130,6 +2217,7 @@ const WorldMap: React.FC<WorldMapProps> = ({
             ].map(({ kind, pin }) => {
               if (!pin.border || pin.border.length < 3) return null;
               if (!layers.regions || (kind === "doc" ? !layers.docs : !layers.records)) return null;
+              if (playerView && pin.secret) return null;
               const c = pinColor(kind, pin);
               const active = highlightPinId === pin.id;
               const pts = pin.border.map((p) => { const s = toScreen(p.x, p.y); return `${s.left},${s.top}`; }).join(" ");
@@ -2143,13 +2231,14 @@ const WorldMap: React.FC<WorldMapProps> = ({
                     strokeOpacity={active ? 1 : 0.95}
                     strokeWidth={active ? 4 : 3}
                     strokeLinejoin="round"
-                    style={{ pointerEvents: (drawing || addMode !== "none" || measuring) ? "none" : "auto", cursor: "move", transition: "fill-opacity 120ms" }}
+                    strokeDasharray={pin.secret ? "10 6" : undefined}
+                    style={{ pointerEvents: (drawing || addMode !== "none" || measuring || playerView) ? "none" : "auto", cursor: "move", transition: "fill-opacity 120ms" }}
                     onMouseDown={(e) => startBorderDrag(e, kind, pin.id, "move")}
                     onMouseEnter={() => setHighlightPinId(pin.id)}
                     onMouseLeave={() => setHighlightPinId((cur) => (cur === pin.id ? null : cur))}
                     onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setPinCtxMenu({ kind, pinId: pin.id, x: e.clientX, y: e.clientY }); }}
                   />
-                  {pin.border.map((p, i) => {
+                  {!playerView && pin.border.map((p, i) => {
                     const s = toScreen(p.x, p.y);
                     const interactive = !drawing && addMode === "none" && !measuring;
                     return (
@@ -2211,8 +2300,9 @@ const WorldMap: React.FC<WorldMapProps> = ({
           {layers.texts && imgNatural.w > 0 && (() => {
             const list: MapTextLabel[] = texts.map((l) => (textEditor && textEditor.id === l.id ? textEditor.draft : l));
             if (textEditor && textEditor.id === NEW_TEXT_ID) list.push(textEditor.draft);
-            const interactive = !drawing && !measuring && addMode === "none";
+            const interactive = !drawing && !measuring && addMode === "none" && !playerView;
             return list.map((lbl) => {
+              if (playerView && lbl.secret) return null;
               const s = toScreen(lbl.x, lbl.y);
               const fs = mapTextFontPx(lbl.size, imgNatural.w) * zoom;
               const editing = textEditor?.id === lbl.id;
@@ -2237,7 +2327,8 @@ const WorldMap: React.FC<WorldMapProps> = ({
                     letterSpacing: lbl.caps ? "0.2em" : "0.02em",
                     textTransform: lbl.caps ? "uppercase" : "none",
                     color,
-                    opacity: empty ? 0.55 : 1,
+                    opacity: empty ? 0.55 : lbl.secret ? 0.6 : 1,
+                    textDecoration: lbl.secret ? "underline dashed" : "none",
                     textShadow: `0 0 ${blur}px ${halo}, 0 0 ${blur / 2}px ${halo}, 0 0 1px ${halo}`,
                     whiteSpace: "pre",
                     textAlign: "center",
@@ -2252,7 +2343,7 @@ const WorldMap: React.FC<WorldMapProps> = ({
                     pointerEvents: interactive ? "auto" : "none",
                     zIndex: 5,
                   }}
-                  title={interactive ? t("wmap.textEditHint", "Drag to move · double-click or right-click to edit") : undefined}
+                  title={interactive ? `${lbl.secret ? `${t("wmap.secretTag", "Hidden from players")} · ` : ""}${t("wmap.textEditHint", "Drag to move · double-click or right-click to edit")}` : undefined}
                   onMouseDown={(e) => { if (e.button === 2) { e.preventDefault(); return; } startDragText(e, lbl); }}
                   onClick={(e) => e.stopPropagation()}
                   onDoubleClick={(e) => { e.stopPropagation(); if (!editing) openTextEditor(lbl); }}
@@ -2268,6 +2359,7 @@ const WorldMap: React.FC<WorldMapProps> = ({
 
           {/* Doc pins */}
           {layers.docs && docPins.map((pin) => {
+            if (playerView && pin.secret) return null;
             const doc = documents.find((d) => d.id === pin.docId);
             const glyph = pinGlyph(pin.icon);
             return (
@@ -2279,23 +2371,25 @@ const WorldMap: React.FC<WorldMapProps> = ({
                   top: `${toScreen(pin.x, pin.y).top}px`,
                   transform: "translate(-50%, -100%)",
                   transformOrigin: "center bottom",
-                  cursor: draggingPin?.id === pin.id ? "grabbing" : "grab",
+                  cursor: playerView ? "default" : draggingPin?.id === pin.id ? "grabbing" : "grab",
                   zIndex: popupPinId === pin.id ? 20 : 10,
                   userSelect: "none",
                   WebkitUserSelect: "none",
                   pointerEvents: (drawing || measuring) ? "none" : "auto",
+                  opacity: pin.secret ? 0.75 : 1,
                 }}
-                onMouseDown={(e) => { if (e.button === 2) { e.preventDefault(); return; } startDragPin(e, pin.id, "doc"); }}
+                onMouseDown={(e) => { if (playerView) { e.stopPropagation(); return; } if (e.button === 2) { e.preventDefault(); return; } startDragPin(e, pin.id, "doc"); }}
                 onMouseEnter={() => pin.border && setHighlightPinId(pin.id)}
                 onMouseLeave={() => setHighlightPinId((cur) => (cur === pin.id ? null : cur))}
-                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setPinCtxMenu({ kind: "doc", pinId: pin.id, x: e.clientX, y: e.clientY }); }}
+                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (!playerView) setPinCtxMenu({ kind: "doc", pinId: pin.id, x: e.clientX, y: e.clientY }); }}
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (playerView) return; // players only see the pin and its name
                   if (Date.now() - dragEndedAt.current < 250) return;
                   if (pin.border) setHighlightPinId(pin.id);
                   setPopupPinId(pin.id === popupPinId ? null : pin.id);
                 }}
-                title={doc?.title ?? pin.docId}
+                title={`${doc?.title ?? pin.docId}${pin.secret && !playerView ? ` · ${t("wmap.secretTag", "Hidden from players")}` : ""}`}
               >
                 <div
                   style={{
@@ -2304,7 +2398,7 @@ const WorldMap: React.FC<WorldMapProps> = ({
                     borderRadius: "50% 50% 50% 0",
                     transform: "rotate(-45deg)",
                     background: pin.color ?? "var(--accent)",
-                    border: "2px solid white",
+                    border: pin.secret ? "2px dashed white" : "2px solid white",
                     boxShadow: highlightPinId === pin.id ? `0 0 0 2px ${pinColor("doc", pin)}, 0 0 10px 2px ${pinColor("doc", pin)}` : "0 2px 8px rgba(0,0,0,0.5)",
                     display: "flex",
                     alignItems: "center",
@@ -2344,12 +2438,15 @@ const WorldMap: React.FC<WorldMapProps> = ({
 
           {/* Label pins */}
           {layers.records && labelPins.map((pin) => {
+            if (playerView && pin.secret) return null;
             const col = collections.find((c) => c.id === pin.collectionId);
             const row = col?.rows.find((r) => r.id === pin.entityId);
             const label = row ? entityLabel(row) : pin.entityId;
             const c = pin.color ?? col?.color;
             const glyph = pinGlyph(pin.icon);
             const dotOnly = !layers.names;
+            // In player view a record pin that has its own map opens it on click (a city map, say).
+            const playerSub = playerView ? mapForRecord(pin.collectionId, pin.entityId) : undefined;
             return (
               <div
                 key={pin.id}
@@ -2358,8 +2455,9 @@ const WorldMap: React.FC<WorldMapProps> = ({
                   left: `${toScreen(pin.x, pin.y).left}px`,
                   top: `${toScreen(pin.x, pin.y).top}px`,
                   transform: "translate(-50%, -50%)",
-                  cursor: draggingPin?.id === pin.id ? "grabbing" : "grab",
+                  cursor: playerView ? (playerSub ? "pointer" : "default") : draggingPin?.id === pin.id ? "grabbing" : "grab",
                   zIndex: 10,
+                  opacity: pin.secret ? 0.75 : 1,
                   userSelect: "none",
                   WebkitUserSelect: "none",
                   pointerEvents: (drawing || measuring) ? "none" : "auto",
@@ -2368,7 +2466,7 @@ const WorldMap: React.FC<WorldMapProps> = ({
                   justifyContent: "center",
                   gap: 4,
                   background: dotOnly ? (c ?? "var(--accent)") : c ? `${c}22` : "var(--bg-elevated)",
-                  border: dotOnly ? "2px solid #fff" : `1px solid ${c ?? "var(--border-2)"}`,
+                  border: dotOnly ? `2px ${pin.secret ? "dashed" : "solid"} #fff` : `1px ${pin.secret ? "dashed" : "solid"} ${c ?? "var(--border-2)"}`,
                   borderRadius: 20,
                   padding: dotOnly ? 0 : "3px 8px 3px 8px",
                   width: dotOnly ? (glyph ? 22 : 14) : undefined,
@@ -2379,13 +2477,14 @@ const WorldMap: React.FC<WorldMapProps> = ({
                   boxShadow: highlightPinId === pin.id ? `0 0 0 2px ${c ?? "var(--accent)"}, 0 0 10px 1px ${c ?? "var(--accent)"}` : "0 2px 6px rgba(0,0,0,0.4)",
                   backdropFilter: "blur(4px)",
                 }}
-                title={dotOnly ? label : undefined}
-                onMouseDown={(e) => { if (e.button === 2) { e.preventDefault(); return; } startDragPin(e, pin.id, "label"); }}
+                title={playerSub ? `${t("wmap.openMap", "Open map")}: ${label}` : pin.secret && !playerView ? `${label} · ${t("wmap.secretTag", "Hidden from players")}` : dotOnly ? label : undefined}
+                onMouseDown={(e) => { if (playerView) { e.stopPropagation(); return; } if (e.button === 2) { e.preventDefault(); return; } startDragPin(e, pin.id, "label"); }}
                 onMouseEnter={() => pin.border && setHighlightPinId(pin.id)}
                 onMouseLeave={() => setHighlightPinId((cur) => (cur === pin.id ? null : cur))}
-                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setPinCtxMenu({ kind: "label", pinId: pin.id, x: e.clientX, y: e.clientY }); }}
+                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); if (!playerView) setPinCtxMenu({ kind: "label", pinId: pin.id, x: e.clientX, y: e.clientY }); }}
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (playerView) { if (playerSub) openSubMap(playerSub.id); return; }
                   if (Date.now() - dragEndedAt.current < 250) return;
                   if (pin.border) setHighlightPinId(pin.id);
                   setPopupPinId(pin.id === popupPinId ? null : pin.id);
@@ -2393,7 +2492,7 @@ const WorldMap: React.FC<WorldMapProps> = ({
               >
                 {glyph && <span style={{ fontSize: dotOnly ? 12 : 12, lineHeight: 1, textShadow: dotOnly ? "0 1px 2px rgba(0,0,0,0.6)" : undefined }}>{glyph}</span>}
                 {!dotOnly && label}
-                {!dotOnly && <button
+                {!dotOnly && !playerView && <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -2557,13 +2656,18 @@ const WorldMap: React.FC<WorldMapProps> = ({
         return (
           <>
             <div onClick={close} onContextMenu={(e) => { e.preventDefault(); close(); }} style={{ position: "fixed", inset: 0, zIndex: 130 }} />
-            <div style={{ position: "fixed", top: Math.min(m.y + 4, window.innerHeight - 170), left: Math.max(8, Math.min(m.x, window.innerWidth - 200)), zIndex: 131, minWidth: 170, background: "var(--bg-elevated)", border: "1px solid var(--border-2)", borderRadius: 8, padding: 6, boxShadow: "0 10px 25px rgba(0,0,0,0.45)", display: "flex", flexDirection: "column", gap: 2 }}>
+            <div style={{ position: "fixed", top: Math.min(m.y + 4, window.innerHeight - 210), left: Math.max(8, Math.min(m.x, window.innerWidth - 200)), zIndex: 131, minWidth: 170, background: "var(--bg-elevated)", border: "1px solid var(--border-2)", borderRadius: 8, padding: 6, boxShadow: "0 10px 25px rgba(0,0,0,0.45)", display: "flex", flexDirection: "column", gap: 2 }}>
               {onSetPinStyle && (
                 <button type="button" style={item} onClick={() => { close(); setStyleEditor({ kind: m.kind, pinId: m.pinId, x: m.x, y: m.y }); }}>{t("wmap.pinStyle", "Icon and colour…")}</button>
               )}
               {onSetPinStyle && (
                 <button type="button" style={item} onClick={() => { close(); setPopupPinId(m.pinId); setNoteEdit({ pinId: m.pinId, draft: pin.note ?? "" }); }}>
                   {pin.note ? t("wmap.editNote", "Edit note") : t("wmap.addNote", "Add note")}…
+                </button>
+              )}
+              {onSetPinStyle && (
+                <button type="button" style={item} onClick={() => { close(); onSetPinStyle(m.kind, m.pinId as Id, { secret: pin.secret ? null : true }); onSave(); }}>
+                  {pin.secret ? t("wmap.showToPlayers", "Show to players") : t("wmap.hideFromPlayers", "Hide from players")}
                 </button>
               )}
               {hasBorder ? (

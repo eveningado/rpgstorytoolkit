@@ -5029,14 +5029,16 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
       }
     }
 
+    const publicTexts = (p.worldMapTexts ?? []).filter((l) => !l.secret);
     const worldMap = p.view?.worldMapIncludeInWiki
       ? {
           imagePath: p.view?.worldMapImagePath ?? null,
           name: p.view?.worldMapName ?? "",
-          // Pin notes are the author's private notes: never published.
-          docPins: (p.worldMapDocPins ?? []).map(withoutPinNote),
-          labelPins: (p.worldMapLabelPins ?? []).map(withoutPinNote),
-          ...((p.worldMapTexts?.length ?? 0) > 0 ? { texts: p.worldMapTexts } : {}),
+          // Pin notes are the author's private notes, and secret pins / text are hidden
+          // from players: neither is ever published.
+          docPins: (p.worldMapDocPins ?? []).filter((pin) => !pin.secret).map(withoutPinNote),
+          labelPins: (p.worldMapLabelPins ?? []).filter((pin) => !pin.secret).map(withoutPinNote),
+          ...(publicTexts.length > 0 ? { texts: publicTexts } : {}),
         }
       : null;
 
@@ -7322,12 +7324,13 @@ const App: React.FC<{ isGuest?: boolean; onRequestSignup?: () => void }> = ({
     pinId: Id,
     style: MapPinPatch
   ) => {
-    const apply = <T extends { id: Id; icon?: string; color?: string; note?: string }>(p: T): T => {
+    const apply = <T extends { id: Id; icon?: string; color?: string; note?: string; secret?: boolean }>(p: T): T => {
       if (p.id !== pinId) return p;
       const next = { ...p };
       if (style.icon !== undefined) { if (style.icon) next.icon = style.icon; else delete next.icon; }
       if (style.color !== undefined) { if (style.color) next.color = style.color; else delete next.color; }
       if (style.note !== undefined) { const n = (style.note ?? "").trim(); if (n) next.note = n; else delete next.note; }
+      if (style.secret !== undefined) { if (style.secret) next.secret = true; else delete next.secret; }
       return next;
     };
     setProject((prev) => {

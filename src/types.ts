@@ -207,6 +207,7 @@ export interface WorldMapDocPin {
   icon?: string; // optional marker icon key (see MAP_PIN_ICONS in WorldMap.tsx)
   color?: string; // optional marker colour (hex); defaults to the accent / table colour
   note?: string; // optional private note shown in the pin's popup (never published to the wiki)
+  secret?: boolean; // optional: hidden in the map's player view and left out of the public wiki
 }
 
 export interface WorldMapLabelPin {
@@ -219,6 +220,7 @@ export interface WorldMapLabelPin {
   icon?: string;
   color?: string;
   note?: string;
+  secret?: boolean;
 }
 
 // A change to one pin's look or note. null clears a field back to its default.
@@ -226,6 +228,7 @@ export interface MapPinPatch {
   icon?: string | null;
   color?: string | null;
   note?: string | null;
+  secret?: boolean | null; // true hides the pin from players (player view + wiki); null/false shows it
 }
 
 // Free text written on the map (sea names, region names, notes), independent of pins.
@@ -242,6 +245,7 @@ export interface MapTextLabel {
   rotation?: number; // degrees, -90..90; default 0
   italic?: boolean;
   caps?: boolean; // spaced capitals, the classic region-name look
+  secret?: boolean; // hidden in the map's player view and left out of the public wiki
 }
 
 // Optional map scale for the measure tool: the map image's full width equals
